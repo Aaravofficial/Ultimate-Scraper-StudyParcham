@@ -636,12 +636,9 @@
 
     log("Step  1:  Opening  All  Classes   📂  .......");
     await clickInActiveView((t) => norm(t) === "all classes", "All  Classes  Button", 15000);
-    await waitFor(
-      () =>
-        getActiveViewId() === "#all-classes-view" ||
-        "DIAG:CurrentView=" + getActiveViewId(),
-      { timeout: 12000, interval: 120, label: "#all-classes-view" }
-    );
+    await new Promise((r) => setTimeout(r, 400));
+    log(`After  All  Classes  Click:  View=${getActiveViewId()}  Hash=${window.location.hash}   ℹ️  .......`);
+
 
     const subNorm = norm(item.subject);
     log(`Step  2:  Selecting  Subject  "${item.subject}"   📘  .......`);
