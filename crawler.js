@@ -353,6 +353,7 @@
     return getActiveViewId() === "#study-view" && hasAllClassesInStudyView();
   }
 
+
   // Click  Active  View  Back  Button  Or  Direct  Navigation  Fallback
   async function clickActiveBackButton() {
     const beforeView = getActiveViewId();
@@ -373,12 +374,9 @@
       log(`Missing  Back  Button  In  ${beforeView}  ;  Checking  nav()  Fallback   ⚠️  .......`);
     }
 
-    const changed = await waitFor(() => getActiveViewId() !== beforeView || isConfirmedOnStudyView(), {
-      timeout: 1200,
-      interval: 100,
-      label: `Exit  From  ${beforeView}`
-    }).catch(() => false);
+    await new Promise((r) => setTimeout(r, 200));
 
+    const changed = getActiveViewId() !== beforeView || isConfirmedOnStudyView();
     if (!changed) {
       if (typeof window.nav === "function") {
         const targetNav =
@@ -387,25 +385,21 @@
             : beforeView === "#content-view"
             ? "chapters-view"
             : "study-view";
-        log(`Back  Did  Not  Switch  View;  Calling  nav("${targetNav}")   🧭  .......`);
+        log(`View  Still  ${getActiveViewId()};  Calling  nav("${targetNav}")   🧭  .......`);
         try {
           window.nav(targetNav);
         } catch (err) {
           log(`nav("${targetNav}")  Error:  ${err.message}   ⚠️  .......`);
         }
-
-        await waitFor(() => getActiveViewId() !== beforeView || isConfirmedOnStudyView(), {
-          timeout: 1500,
-          interval: 100,
-          label: `Fallback  nav("${targetNav}")`
-        }).catch(() => false);
+        await new Promise((r) => setTimeout(r, 200));
       } else {
-        log(`Error:  window.nav  Is  Undefined  And  View  Stayed  At  ${beforeView}   ⚠️  .......`);
+        log(`Error:  window.nav  Is  Undefined  And  View  Stayed  At  ${getActiveViewId()}   ⚠️  .......`);
       }
     }
 
     log(`After  Back  Step:  View=${getActiveViewId()}  StudyConfirmed=${isConfirmedOnStudyView()}   ℹ️  .......`);
   }
+  
 
   // Step  Back  Until  Study  View  And  All  Classes  Are  Confirmed
   async function returnToStudyAndVerifyAllClasses() {
