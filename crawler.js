@@ -221,21 +221,32 @@
     if (ok) log("Sent  Link  To  Telegram   🕊️  ..");
   };
 
+
   // Find  Schedule  Card  On  Weekly  Schedule  View
   function findScheduleCard(target) {
     const viewEl = getActiveViewEl();
     let curr = target;
     let steps = 0;
-    while (curr && curr !== viewEl && curr !== document.body && steps < 10) {
+    let fallbackCard = null;
+
+    while (curr && curr !== viewEl && curr !== document.body && steps < 14) {
       const txt = (curr.innerText || "").trim();
-      if (txt.includes("•") && txt.length >= 25 && txt.length <= 800) {
-        return curr;
+      const hasBullet = txt.includes("•");
+      const reasonableSize = txt.length >= 15 && txt.length <= 1400;
+      const hasAction = /\b(watch|resume|notes\s*&\s*more|view\s*note)\b/i.test(txt);
+
+      if (hasBullet && reasonableSize) {
+        if (!fallbackCard) fallbackCard = curr;
+        if (hasAction) return curr;
       }
+
       curr = curr.parentElement;
       steps++;
     }
-    return null;
+
+    return fallbackCard;
   }
+  
 
   // Parse  Subject  &  Lecture  Title  From  Schedule  Card
   function parseScheduleCard(card) {
@@ -246,19 +257,20 @@
 
     const metaLine = lines.find((l) => l.includes("•")) || "";
     const afterBullet = metaLine.includes("•") ? metaLine.split("•").slice(1).join("•").trim() : "";
-    const subject = afterBullet.split(/\bby\b/i)[0].trim();
+    const subject = afterBullet.split(/\s+by\s+/i)[0].trim();
 
     const filtered = lines.filter(
       (l) =>
-        !l.includes("•") &&
+        l !== metaLine &&
         !/^\d{1,2}:\d{2}$/.test(l) &&
-        !/^\d+h\s*\d*m?$/i.test(l) &&
+        !/^\d+\s*h(?:\s*\d+\s*m)?$/i.test(l) &&
         !/^(watch|resume|notes\s*&\s*more|view\s*note)$/i.test(l)
     );
 
     const title = filtered[0] || "";
     return { subject, title };
   }
+
 
   // Queue  Lectures  When  Tapped  On  Weekly  Schedule
   document.addEventListener(
