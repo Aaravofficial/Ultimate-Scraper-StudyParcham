@@ -10,7 +10,7 @@
   }
   window.__pwCrawlerActive = true;
 
-  // Normalize  Text  For  Reliable  Matching
+  // Normalize  Text  For  Reliable  Matchingg
   const norm = (s = "") =>
     s
       .replace(/\s+/g, " ")
