@@ -355,6 +355,7 @@
     }).catch(() => {});
   }
 
+
   // Step  Back  Until  Study  View  And  All  Classes  Are  Confirmed
   async function returnToStudyAndVerifyAllClasses() {
     if (isConfirmedOnStudyView()) {
@@ -363,22 +364,40 @@
     }
 
     log("Navigating  Back  To  Study  View   🪄  ..");
-    const start = Date.now();
-    while (Date.now() - start < 35000) {
+    const deadline = Date.now() + 25000;
+    let attempts = 0;
+
+    while (Date.now() < deadline && attempts < 8) {
+      attempts++;
       if (isConfirmedOnStudyView()) {
         log("Confirmed  On  Study  View  With  All  Classes   ✅  ..");
         return true;
       }
+
+      log(`Back  Attempt  ${attempts}  From  ${getActiveViewId()}  ..`);
       await clickActiveBackButton();
-      await waitFor(() => isConfirmedOnStudyView() || getActiveViewId() !== "", {
-        timeout: 2000,
-        label: "Study  View  Settle"
-      }).catch(() => {});
+
+      const reached = await waitFor(() => isConfirmedOnStudyView(), {
+        timeout: 2500,
+        interval: 150,
+        label: "Study  View  Confirmation"
+      }).catch(() => false);
+
+      if (reached) {
+        log("Confirmed  On  Study  View  With  All  Classes   ✅  ..");
+        return true;
+      }
+    }
+
+    if (isConfirmedOnStudyView()) {
+      log("Confirmed  On  Study  View  With  All  Classes   ✅  ..");
+      return true;
     }
 
     log("Failed  To  Confirm  All  Classes  On  Study  View   ⚠️  ..");
     return false;
   }
+
 
   // Click  Matching  Element  Inside  Active  View
   async function clickInActiveView(predicateFn, label, timeout = 25000) {
