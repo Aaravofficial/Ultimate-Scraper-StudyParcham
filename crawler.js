@@ -306,6 +306,7 @@
     true
   );
 
+
   // Verify  All  Classes  Exists  Inside  Active  Study  View
   function hasAllClassesInStudyView() {
     const studyEl = document.getElementById("study-view");
@@ -314,10 +315,16 @@
       studyEl.classList.contains("active-view") || window.getComputedStyle(studyEl).display !== "none";
     if (!visible) return false;
 
-    return Array.from(studyEl.querySelectorAll(".offering-item, button, a, div, span")).some(
-      (el) => el.children.length <= 2 && norm(el.innerText) === "all classes"
+    const offering = studyEl.querySelector(".offering-item");
+    if (offering && norm(offering.innerText).includes("all classes")) {
+      return true;
+    }
+
+    return Array.from(studyEl.querySelectorAll("button, a, div, span")).some(
+      (el) => norm(el.innerText) === "all classes"
     );
   }
+
 
   // Confirm  Script  Is  On  Study  View  With  All  Classes  Present
   function isConfirmedOnStudyView() {
