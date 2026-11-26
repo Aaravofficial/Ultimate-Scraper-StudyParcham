@@ -40,7 +40,7 @@
     </div>
     <div style="font-size:11px;color:#94a3b8;line-height:1.35;">
       1. Tap lectures on Weekly Schedule to queue.<br>
-      2. Tap Start Crawl to fetch signed links to TG.
+      2. Tap Start Crawl to fetch stream links to TG.
     </div>
     <div style="display:flex;gap:6px;margin-top:8px;">
       <button id="pw-cp-logs" style="flex:1;background:#00ff88;color:#000;border:none;padding:6px;border-radius:5px;cursor:pointer;font-weight:bold;">📋 Copy Logs</button>
@@ -54,7 +54,7 @@
   `;
   document.body.appendChild(hud);
 
-  // Bottom-Right Mini Screen / Stream Vault
+  // Bottom-Right Mini Monitor
   const vaultBox = document.createElement("div");
   vaultBox.id = "pw-vault-mini";
   vaultBox.style.cssText =
@@ -64,12 +64,13 @@
       <b style="color:#38bdf8;">📺 Mini Monitor</b>
       <span id="pw-vault-state" style="color:#facc15;font-weight:bold;">IDLE</span>
     </div>
-    <div id="pw-vault-screen" style="background:#020617;border:1px solid #1e293b;border-radius:6px;padding:6px;margin-bottom:6px;color:#38bdf8;font-size:10.5px;line-height:1.35;max-height:64px;overflow-y:auto;">
+    <div id="pw-vault-screen" style="background:#020617;border:1px solid #1e293b;border-radius:6px;padding:6px;margin-bottom:6px;color:#38bdf8;font-size:10.5px;line-height:1.35;max-height:68px;overflow-y:auto;">
       <div>View: <span id="pw-mini-view">#weekly-schedule-view</span></div>
       <div>Step: <span id="pw-mini-step" style="color:#e2e8f0;">Ready</span></div>
+      <div>Detail: <span id="pw-mini-detail" style="color:#94a3b8;">Waiting</span></div>
     </div>
     <div id="pw-vault-title" style="color:#e2e8f0;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px;">No active lecture</div>
-    <div id="pw-vault-url" style="color:#94a3b8;word-break:break-all;max-height:54px;overflow-y:auto;background:#020617;padding:6px;border-radius:6px;border:1px solid #1e293b;">Waiting for capture...</div>
+    <div id="pw-vault-url" style="color:#94a3b8;word-break:break-all;max-height:56px;overflow-y:auto;background:#020617;padding:6px;border-radius:6px;border:1px solid #1e293b;">Waiting for capture...</div>
     <div style="display:flex;gap:6px;margin-top:7px;">
       <button id="pw-copy-link" style="flex:1;background:#0284c7;color:#fff;border:none;padding:5px;border-radius:5px;cursor:pointer;font-weight:bold;">📋 Copy Link</button>
       <button id="pw-resend-tg" style="flex:1;background:#16a34a;color:#fff;border:none;padding:5px;border-radius:5px;cursor:pointer;font-weight:bold;">✈️ Send TG</button>
@@ -82,6 +83,7 @@
   const vaultStateEl = vaultBox.querySelector("#pw-vault-state");
   const miniViewEl = vaultBox.querySelector("#pw-mini-view");
   const miniStepEl = vaultBox.querySelector("#pw-mini-step");
+  const miniDetailEl = vaultBox.querySelector("#pw-mini-detail");
   const vaultTitleEl = vaultBox.querySelector("#pw-vault-title");
   const vaultUrlEl = vaultBox.querySelector("#pw-vault-url");
 
@@ -94,10 +96,11 @@
   let latestDownloaderUrl = "";
   const sentUrls = new Set();
 
-  function updateMiniScreen(stepText, viewOverride) {
+  function updateMiniScreen(stepText, viewOverride, detailText) {
     const v = viewOverride || getActiveViewId() || "#weekly-schedule-view";
     if (miniViewEl) miniViewEl.textContent = v;
     if (miniStepEl && stepText) miniStepEl.textContent = stepText;
+    if (miniDetailEl && detailText !== undefined) miniDetailEl.textContent = detailText;
   }
 
   function log(msg) {
@@ -111,7 +114,7 @@
     console.log("[PW-CRAWLER]", line);
   }
 
-  function setVaultStatus(state, title, url, stepText, viewOverride) {
+  function setVaultStatus(state, title, url, stepText, viewOverride, detailText) {
     if (state) vaultStateEl.textContent = state;
     if (title !== undefined) {
       lastCapturedTitle = title;
@@ -121,8 +124,8 @@
       lastCapturedUrl = url;
       vaultUrlEl.textContent = url || "None";
     }
-    if (stepText || viewOverride) {
-      updateMiniScreen(stepText, viewOverride);
+    if (stepText || viewOverride || detailText !== undefined) {
+      updateMiniScreen(stepText, viewOverride, detailText);
     }
   }
 
@@ -253,7 +256,7 @@
         const now = Date.now();
         if (now - lastProgress >= progressEveryMs) {
           lastProgress = now;
-          updateMiniScreen(`Waiting: ${label}`);
+          updateMiniScreen(`Waiting: ${label}`, undefined, lastDiag || "Polling...");
           log(`Waiting [${label}] (${Math.round((now - start) / 1000)}s)${lastDiag ? `: ${lastDiag}` : ""}`);
         }
         if (now - start >= timeout) {
@@ -421,13 +424,13 @@
 
   async function ensureStudyViewWithAllClasses() {
     if (isOnStudyViewReady()) {
-      updateMiniScreen("Study View Ready", "#study-view");
+      updateMiniScreen("Study View Ready", "#study-view", "All Classes present");
       return true;
     }
 
     for (let attempt = 0; attempt < 6; attempt++) {
       if (isOnStudyViewReady()) {
-        updateMiniScreen("Study View Ready", "#study-view");
+        updateMiniScreen("Study View Ready", "#study-view", "All Classes present");
         return true;
       }
       const before = getActiveViewId();
@@ -438,17 +441,17 @@
 
       if (backBtn && isVisible(backBtn)) {
         log(`Back (${attempt + 1}) from ${before}`);
-        updateMiniScreen(`Back from ${before}`, before);
+        updateMiniScreen(`Back from ${before}`, before, `Attempt ${attempt + 1}`);
         backBtn.click();
       } else if (typeof window.nav === "function") {
         log(`nav("study-view") from ${before}`);
-        updateMiniScreen("nav -> #study-view", "#study-view");
+        updateMiniScreen("nav -> #study-view", "#study-view", "Fallback nav");
         window.nav("study-view");
       }
 
       await sleep(350);
       if (isOnStudyViewReady()) {
-        updateMiniScreen("Study View Ready", "#study-view");
+        updateMiniScreen("Study View Ready", "#study-view", "All Classes present");
         return true;
       }
     }
@@ -464,7 +467,7 @@
 
   async function returnToWeeklySchedule() {
     if (getActiveViewId() === "#weekly-schedule-view") {
-      updateMiniScreen("Back on Weekly Schedule", "#weekly-schedule-view");
+      updateMiniScreen("On Weekly Schedule", "#weekly-schedule-view", "Idle");
       return;
     }
     const onStudy = await ensureStudyViewWithAllClasses();
@@ -482,7 +485,7 @@
         await sleep(350);
       }
     }
-    updateMiniScreen("Returned to Weekly Schedule", getActiveViewId());
+    updateMiniScreen("Returned to Weekly Schedule", getActiveViewId(), "Ready");
   }
 
   function scoreMatch(candidateText, queryText) {
@@ -528,7 +531,7 @@
   }
 
   async function clickAndWaitForNextView(fromViewId, fromSelector, queryText, nextViewId, nextSelector, label, minScore = 100) {
-    updateMiniScreen(`Loading ${fromViewId}...`, fromViewId);
+    updateMiniScreen(`Loading ${fromViewId}...`, fromViewId, label);
     await waitForViewSettled(fromViewId, fromSelector, `Load ${fromViewId}`, 25000);
 
     const getMatch = () => findBestClickable(fromViewId, fromSelector, queryText, minScore);
@@ -538,7 +541,7 @@
     );
 
     clickCardThoroughly(firstMatch);
-    updateMiniScreen(`Clicked ${label}`, nextViewId);
+    updateMiniScreen(`Clicked ${label}`, nextViewId, firstMatch.text.replace(/\s+/g, " ").slice(0, 36));
     log(`Clicked ${label}: "${firstMatch.text.replace(/\s+/g, " ").slice(0, 35)}" (score ${firstMatch.score})`);
 
     const movedFirst = await waitFor(
@@ -557,7 +560,7 @@
     }
 
     const settled = await waitForViewSettled(nextViewId, nextSelector, `Settle ${nextViewId}`, 25000);
-    updateMiniScreen(`Settled ${nextViewId}`, nextViewId);
+    updateMiniScreen(`Settled ${nextViewId}`, nextViewId, `${settled.length} items`);
     return settled;
   }
 
@@ -593,7 +596,19 @@
     return { error: "Download button missing" };
   }
 
-  // Preserves query signatures (?Signature=...&Key-Pair-Id=...&Policy=...) and routes through proxy.studyparcham.in
+  function findSignedM3u8FromPerformance() {
+    try {
+      const entries = performance.getEntriesByType("resource") || [];
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const name = entries[i]?.name || "";
+        if (name.includes(".m3u8") && (name.includes("Signature=") || name.includes("proxy.studyparcham.in"))) {
+          return name.replace(/\/hls\/[^/]+\/main\.m3u8/i, "/master.m3u8");
+        }
+      }
+    } catch (_) {}
+    return "";
+  }
+
   function cleanStreamUrl(rawUrl) {
     if (!rawUrl) return "";
     try {
@@ -616,21 +631,25 @@
         streamUrl.pathname = `/d1d34p8vz63oiq.cloudfront.net${streamUrl.pathname}`;
       }
 
-      return streamUrl.toString();
+      const built = streamUrl.toString();
+      if (!streamUrl.search) {
+        const perfSigned = findSignedM3u8FromPerformance();
+        if (perfSigned) return perfSigned;
+      }
+      return built;
     } catch (_) {
       return String(rawUrl).replace(/(\/hls\/[^/?]+\/main\.m3u8|\/master\.mpd)/i, "/master.m3u8");
     }
   }
 
-  // Intercepts /downloader navigation so no extra tab opens and no chunks download to phone storage
   const origWindowOpen = window.open.bind(window);
   window.open = function (url, target, features) {
     if (typeof url === "string" && url.includes("downloader")) {
       latestDownloaderUrl = url;
       const cleaned = cleanStreamUrl(url);
       if (cleaned) {
-        setVaultStatus("CAPTURED", lastCapturedTitle, cleaned, "Downloader intercepted", "/downloader");
-        log("Captured signed stream URL via window.open");
+        setVaultStatus("CAPTURED", lastCapturedTitle, cleaned, "Downloader intercepted", "/downloader", "No new tab opened");
+        log("Captured stream URL via window.open");
       }
       return null;
     }
@@ -652,7 +671,7 @@
     lastCapturedTitle = item.title;
     lastCapturedSubject = item.subject;
     latestDownloaderUrl = "";
-    setVaultStatus("RUNNING", item.title, "Extracting stream...", `[${index + 1}/${total}] Checking Study View`);
+    setVaultStatus("RUNNING", item.title, "Extracting stream...", `[${index + 1}/${total}] Checking Study View`, undefined, item.subject);
 
     log(`[${index + 1}/${total}] ${item.title} (${item.subject})`);
 
@@ -699,7 +718,7 @@
     await waitForViewSettled("#content-view", "#content-list .content-card, #content-list > div", "Content list", 25000);
 
     log(`Step 4: Clicking download on "${item.title}"...`);
-    updateMiniScreen("Triggering downloader...", "#content-view");
+    updateMiniScreen("Triggering download...", "#content-view", item.title.slice(0, 35));
     const target = await waitFor(
       () => {
         const res = findLectureDownloadTarget(item.title);
@@ -719,12 +738,13 @@
 
     const cleaned = cleanStreamUrl(rawDlUrl);
     if (cleaned) {
-      setVaultStatus("CAPTURED", item.title, cleaned, "Signed link ready", "/downloader");
+      const hasSig = cleaned.includes("Signature=");
+      setVaultStatus("CAPTURED", item.title, cleaned, "Link ready", "/downloader", hasSig ? "Signed query intact" : "Base URL (no sig in param)");
       if (!sentUrls.has(cleaned)) {
         const ok = await sendTelegram(`${item.title}\nSubject: ${item.subject}\n\n/s1 ${cleaned}`);
         if (ok) {
           sentUrls.add(cleaned);
-          log("Step 5: Sent signed link to Telegram.");
+          log(`Step 5: Sent link to Telegram${hasSig ? " (with signature)" : ""}.`);
         }
       } else {
         log("Step 5: Duplicate link skipped.");
@@ -757,7 +777,7 @@
     }
 
     await returnToWeeklySchedule().catch(() => {});
-    setVaultStatus("DONE", lastCapturedTitle, lastCapturedUrl, "All items complete", "#weekly-schedule-view");
+    setVaultStatus("DONE", lastCapturedTitle, lastCapturedUrl, "All items processed", "#weekly-schedule-view", "Completed");
     log("All queued items processed.");
     isCrawling = false;
     startBtn.disabled = false;
