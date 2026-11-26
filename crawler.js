@@ -28,6 +28,7 @@
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  // Bottom-Left HUD
   const hud = document.createElement("div");
   hud.id = "pw-hud-panel";
   hud.style.cssText =
@@ -38,8 +39,8 @@
       <span id="pw-q-badge" style="color:#38bdf8;font-weight:bold;">Q: 0</span>
     </div>
     <div style="font-size:11px;color:#94a3b8;line-height:1.35;">
-      1. On Weekly Schedule, tap lectures to queue.<br>
-      2. Tap Start Crawl to fetch & send links to TG.
+      1. Tap lectures on Weekly Schedule to queue.<br>
+      2. Tap Start Crawl to fetch signed links to TG.
     </div>
     <div style="display:flex;gap:6px;margin-top:8px;">
       <button id="pw-cp-logs" style="flex:1;background:#00ff88;color:#000;border:none;padding:6px;border-radius:5px;cursor:pointer;font-weight:bold;">📋 Copy Logs</button>
@@ -49,21 +50,26 @@
       <button id="pw-clear-q" style="flex:1;background:#1e293b;color:#e2e8f0;border:1px solid #334155;padding:4px;border-radius:5px;cursor:pointer;font-size:11px;">🗑️ Clear Q</button>
       <button id="pw-dbg-view" style="flex:1;background:#1e293b;color:#38bdf8;border:1px solid #334155;padding:4px;border-radius:5px;cursor:pointer;font-size:11px;">🔍 View Info</button>
     </div>
-    <div id="pw-log-box" style="max-height:185px;overflow-y:auto;margin-top:8px;border-top:1px solid #1e293b;padding-top:6px;font-size:11px;line-height:1.35;color:#cbd5e1;"></div>
+    <div id="pw-log-box" style="max-height:175px;overflow-y:auto;margin-top:8px;border-top:1px solid #1e293b;padding-top:6px;font-size:11px;line-height:1.35;color:#cbd5e1;"></div>
   `;
   document.body.appendChild(hud);
 
+  // Bottom-Right Mini Screen / Stream Vault
   const vaultBox = document.createElement("div");
   vaultBox.id = "pw-vault-mini";
   vaultBox.style.cssText =
-    "position:fixed;bottom:14px;right:14px;background:#0b1120;color:#f8fafc;padding:12px;z-index:2147483646;border:2px solid #38bdf8;border-radius:10px;font-family:monospace;width:280px;max-width:calc(100vw - 28px);font-size:11px;box-shadow:0 0 18px rgba(56,189,248,0.25);";
+    "position:fixed;bottom:14px;right:14px;background:#0b1120;color:#f8fafc;padding:12px;z-index:2147483646;border:2px solid #38bdf8;border-radius:10px;font-family:monospace;width:285px;max-width:calc(100vw - 28px);font-size:11px;box-shadow:0 0 18px rgba(56,189,248,0.25);";
   vaultBox.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-      <b style="color:#38bdf8;">🔗 Stream Vault</b>
+      <b style="color:#38bdf8;">📺 Mini Monitor</b>
       <span id="pw-vault-state" style="color:#facc15;font-weight:bold;">IDLE</span>
     </div>
+    <div id="pw-vault-screen" style="background:#020617;border:1px solid #1e293b;border-radius:6px;padding:6px;margin-bottom:6px;color:#38bdf8;font-size:10.5px;line-height:1.35;max-height:64px;overflow-y:auto;">
+      <div>View: <span id="pw-mini-view">#weekly-schedule-view</span></div>
+      <div>Step: <span id="pw-mini-step" style="color:#e2e8f0;">Ready</span></div>
+    </div>
     <div id="pw-vault-title" style="color:#e2e8f0;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px;">No active lecture</div>
-    <div id="pw-vault-url" style="color:#94a3b8;word-break:break-all;max-height:56px;overflow-y:auto;background:#020617;padding:6px;border-radius:6px;border:1px solid #1e293b;">Waiting for capture...</div>
+    <div id="pw-vault-url" style="color:#94a3b8;word-break:break-all;max-height:54px;overflow-y:auto;background:#020617;padding:6px;border-radius:6px;border:1px solid #1e293b;">Waiting for capture...</div>
     <div style="display:flex;gap:6px;margin-top:7px;">
       <button id="pw-copy-link" style="flex:1;background:#0284c7;color:#fff;border:none;padding:5px;border-radius:5px;cursor:pointer;font-weight:bold;">📋 Copy Link</button>
       <button id="pw-resend-tg" style="flex:1;background:#16a34a;color:#fff;border:none;padding:5px;border-radius:5px;cursor:pointer;font-weight:bold;">✈️ Send TG</button>
@@ -74,6 +80,8 @@
   const logBox = hud.querySelector("#pw-log-box");
   const qBadge = hud.querySelector("#pw-q-badge");
   const vaultStateEl = vaultBox.querySelector("#pw-vault-state");
+  const miniViewEl = vaultBox.querySelector("#pw-mini-view");
+  const miniStepEl = vaultBox.querySelector("#pw-mini-step");
   const vaultTitleEl = vaultBox.querySelector("#pw-vault-title");
   const vaultUrlEl = vaultBox.querySelector("#pw-vault-url");
 
@@ -86,6 +94,12 @@
   let latestDownloaderUrl = "";
   const sentUrls = new Set();
 
+  function updateMiniScreen(stepText, viewOverride) {
+    const v = viewOverride || getActiveViewId() || "#weekly-schedule-view";
+    if (miniViewEl) miniViewEl.textContent = v;
+    if (miniStepEl && stepText) miniStepEl.textContent = stepText;
+  }
+
   function log(msg) {
     const stamp = new Date().toLocaleTimeString();
     const line = `[${stamp}] ${msg}`;
@@ -97,7 +111,7 @@
     console.log("[PW-CRAWLER]", line);
   }
 
-  function setVaultStatus(state, title, url) {
+  function setVaultStatus(state, title, url, stepText, viewOverride) {
     if (state) vaultStateEl.textContent = state;
     if (title !== undefined) {
       lastCapturedTitle = title;
@@ -106,6 +120,9 @@
     if (url !== undefined) {
       lastCapturedUrl = url;
       vaultUrlEl.textContent = url || "None";
+    }
+    if (stepText || viewOverride) {
+      updateMiniScreen(stepText, viewOverride);
     }
   }
 
@@ -236,6 +253,7 @@
         const now = Date.now();
         if (now - lastProgress >= progressEveryMs) {
           lastProgress = now;
+          updateMiniScreen(`Waiting: ${label}`);
           log(`Waiting [${label}] (${Math.round((now - start) / 1000)}s)${lastDiag ? `: ${lastDiag}` : ""}`);
         }
         if (now - start >= timeout) {
@@ -402,10 +420,16 @@
   );
 
   async function ensureStudyViewWithAllClasses() {
-    if (isOnStudyViewReady()) return true;
+    if (isOnStudyViewReady()) {
+      updateMiniScreen("Study View Ready", "#study-view");
+      return true;
+    }
 
     for (let attempt = 0; attempt < 6; attempt++) {
-      if (isOnStudyViewReady()) return true;
+      if (isOnStudyViewReady()) {
+        updateMiniScreen("Study View Ready", "#study-view");
+        return true;
+      }
       const before = getActiveViewId();
       const viewEl = getActiveViewEl();
       const backBtn =
@@ -414,21 +438,51 @@
 
       if (backBtn && isVisible(backBtn)) {
         log(`Back (${attempt + 1}) from ${before}`);
+        updateMiniScreen(`Back from ${before}`, before);
         backBtn.click();
       } else if (typeof window.nav === "function") {
         log(`nav("study-view") from ${before}`);
+        updateMiniScreen("nav -> #study-view", "#study-view");
         window.nav("study-view");
       }
 
       await sleep(350);
-      if (isOnStudyViewReady()) return true;
+      if (isOnStudyViewReady()) {
+        updateMiniScreen("Study View Ready", "#study-view");
+        return true;
+      }
     }
 
     if (typeof window.nav === "function") {
       window.nav("study-view");
       await sleep(400);
     }
-    return isOnStudyViewReady();
+    const ok = isOnStudyViewReady();
+    updateMiniScreen(ok ? "Study View Ready" : "Study View Missing", getActiveViewId());
+    return ok;
+  }
+
+  async function returnToWeeklySchedule() {
+    if (getActiveViewId() === "#weekly-schedule-view") {
+      updateMiniScreen("Back on Weekly Schedule", "#weekly-schedule-view");
+      return;
+    }
+    const onStudy = await ensureStudyViewWithAllClasses();
+    if (onStudy) {
+      const schedBtn = Array.from(document.querySelectorAll("#study-view button, #study-view a, #study-view div"))
+        .find((el) => isVisible(el) && norm(el.innerText).includes("view weekly schedule"));
+      if (schedBtn) {
+        schedBtn.click();
+        await sleep(350);
+      } else if (typeof window.openWeeklySchedule === "function") {
+        window.openWeeklySchedule();
+        await sleep(350);
+      } else if (typeof window.nav === "function") {
+        window.nav("weekly-schedule-view");
+        await sleep(350);
+      }
+    }
+    updateMiniScreen("Returned to Weekly Schedule", getActiveViewId());
   }
 
   function scoreMatch(candidateText, queryText) {
@@ -474,6 +528,7 @@
   }
 
   async function clickAndWaitForNextView(fromViewId, fromSelector, queryText, nextViewId, nextSelector, label, minScore = 100) {
+    updateMiniScreen(`Loading ${fromViewId}...`, fromViewId);
     await waitForViewSettled(fromViewId, fromSelector, `Load ${fromViewId}`, 25000);
 
     const getMatch = () => findBestClickable(fromViewId, fromSelector, queryText, minScore);
@@ -483,6 +538,7 @@
     );
 
     clickCardThoroughly(firstMatch);
+    updateMiniScreen(`Clicked ${label}`, nextViewId);
     log(`Clicked ${label}: "${firstMatch.text.replace(/\s+/g, " ").slice(0, 35)}" (score ${firstMatch.score})`);
 
     const movedFirst = await waitFor(
@@ -492,7 +548,6 @@
 
     if (!movedFirst) {
       const freshMatch = getMatch() || firstMatch;
-      log(`Card HTML: ${freshMatch.clickable.outerHTML.replace(/\s+/g, " ").slice(0, 200)}`);
       log(`Re-clicking ${label} (view still ${getActiveViewId()})...`);
       clickCardThoroughly(freshMatch);
       await waitFor(
@@ -501,7 +556,9 @@
       );
     }
 
-    return waitForViewSettled(nextViewId, nextSelector, `Settle ${nextViewId}`, 25000);
+    const settled = await waitForViewSettled(nextViewId, nextSelector, `Settle ${nextViewId}`, 25000);
+    updateMiniScreen(`Settled ${nextViewId}`, nextViewId);
+    return settled;
   }
 
   function findLectureDownloadTarget(lectureTitle) {
@@ -536,27 +593,46 @@
     return { error: "Download button missing" };
   }
 
+  // Preserves query signatures (?Signature=...&Key-Pair-Id=...&Policy=...) and routes through proxy.studyparcham.in
   function cleanStreamUrl(rawUrl) {
     if (!rawUrl) return "";
     try {
-      const u = new URL(rawUrl, window.location.origin);
-      const paramUrl = u.searchParams.get("url");
-      const target = paramUrl ? decodeURIComponent(paramUrl) : rawUrl;
-      return target.replace(/\/(hls\/[^?]+|master\.mpd)(\?.*)?$/i, "/master.m3u8");
+      const parsed = new URL(rawUrl, window.location.origin);
+      const paramUrl = parsed.searchParams.get("url");
+      const decodedTarget = paramUrl ? decodeURIComponent(paramUrl) : rawUrl;
+      const streamUrl = new URL(decodedTarget, window.location.origin);
+
+      streamUrl.pathname = streamUrl.pathname.replace(
+        /(\/hls\/[^/]+\/main\.m3u8|\/master\.mpd)$/i,
+        "/master.m3u8"
+      );
+
+      if (
+        streamUrl.hostname === "d1d34p8vz63oiq.cloudfront.net" &&
+        !streamUrl.pathname.startsWith("/d1d34p8vz63oiq.cloudfront.net/")
+      ) {
+        streamUrl.protocol = "https:";
+        streamUrl.host = "proxy.studyparcham.in";
+        streamUrl.pathname = `/d1d34p8vz63oiq.cloudfront.net${streamUrl.pathname}`;
+      }
+
+      return streamUrl.toString();
     } catch (_) {
-      return String(rawUrl).replace(/\/(hls\/[^?]+|master\.mpd)(\?.*)?$/i, "/master.m3u8");
+      return String(rawUrl).replace(/(\/hls\/[^/?]+\/main\.m3u8|\/master\.mpd)/i, "/master.m3u8");
     }
   }
 
+  // Intercepts /downloader navigation so no extra tab opens and no chunks download to phone storage
   const origWindowOpen = window.open.bind(window);
   window.open = function (url, target, features) {
     if (typeof url === "string" && url.includes("downloader")) {
       latestDownloaderUrl = url;
       const cleaned = cleanStreamUrl(url);
       if (cleaned) {
-        setVaultStatus("CAPTURED", lastCapturedTitle, cleaned);
-        log("Captured downloader URL via window.open");
+        setVaultStatus("CAPTURED", lastCapturedTitle, cleaned, "Downloader intercepted", "/downloader");
+        log("Captured signed stream URL via window.open");
       }
+      return null;
     }
     return origWindowOpen(url, target, features);
   };
@@ -576,7 +652,7 @@
     lastCapturedTitle = item.title;
     lastCapturedSubject = item.subject;
     latestDownloaderUrl = "";
-    setVaultStatus("RUNNING", item.title, "Checking Study View...");
+    setVaultStatus("RUNNING", item.title, "Extracting stream...", `[${index + 1}/${total}] Checking Study View`);
 
     log(`[${index + 1}/${total}] ${item.title} (${item.subject})`);
 
@@ -623,6 +699,7 @@
     await waitForViewSettled("#content-view", "#content-list .content-card, #content-list > div", "Content list", 25000);
 
     log(`Step 4: Clicking download on "${item.title}"...`);
+    updateMiniScreen("Triggering downloader...", "#content-view");
     const target = await waitFor(
       () => {
         const res = findLectureDownloadTarget(item.title);
@@ -642,18 +719,18 @@
 
     const cleaned = cleanStreamUrl(rawDlUrl);
     if (cleaned) {
-      setVaultStatus("CAPTURED", item.title, cleaned);
+      setVaultStatus("CAPTURED", item.title, cleaned, "Signed link ready", "/downloader");
       if (!sentUrls.has(cleaned)) {
         const ok = await sendTelegram(`${item.title}\nSubject: ${item.subject}\n\n/s1 ${cleaned}`);
         if (ok) {
           sentUrls.add(cleaned);
-          log("Step 5: Sent cleaned link to Telegram.");
+          log("Step 5: Sent signed link to Telegram.");
         }
       } else {
         log("Step 5: Duplicate link skipped.");
       }
     } else {
-      setVaultStatus("NO_URL", item.title, "Downloader URL not captured");
+      setVaultStatus("NO_URL", item.title, "Downloader URL not captured", "URL missing", "#content-view");
       log("Warning: downloader URL not captured.");
     }
 
@@ -679,7 +756,8 @@
       }
     }
 
-    setVaultStatus("DONE", lastCapturedTitle, lastCapturedUrl);
+    await returnToWeeklySchedule().catch(() => {});
+    setVaultStatus("DONE", lastCapturedTitle, lastCapturedUrl, "All items complete", "#weekly-schedule-view");
     log("All queued items processed.");
     isCrawling = false;
     startBtn.disabled = false;
