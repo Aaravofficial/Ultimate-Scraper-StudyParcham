@@ -192,7 +192,7 @@
     return getActiveViewId() === "#study-view" && !!findAllClassesEl();
   }
 
-  function waitFor(predicate, { timeout = 20000, interval = 200, label = "Condition", progressEveryMs = 3500 } = {}) {
+  function waitFor(predicate, { timeout = 25000, interval = 200, label = "Condition", progressEveryMs = 3500 } = {}) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
       let lastProgress = start;
@@ -239,7 +239,8 @@
     });
   }
 
-  async function waitForViewSettled(viewId, itemSelector, label, timeout = 20000) {
+  // Ensures target view is visible, spinner is completely gone, items exist, and list is settled
+  async function waitForViewSettled(viewId, itemSelector, label, timeout = 25000) {
     let lastSig = "";
     let stableSince = 0;
 
@@ -249,28 +250,30 @@
         if (!el || !isVisible(el)) return `DIAG:${viewId} not visible (active=${getActiveViewId()})`;
         if (hasLoadingSpinner(el)) {
           stableSince = 0;
-          return `DIAG:Spinner in ${viewId}`;
+          return `DIAG:Spinner active in ${viewId}`;
         }
 
-        const items = Array.from(el.querySelectorAll(itemSelector)).filter(isVisible);
+        const items = Array.from(el.querySelectorAll(itemSelector)).filter(
+          (n) => isVisible(n) && norm(n.innerText).length > 0
+        );
         if (items.length === 0) {
           stableSince = 0;
-          return `DIAG:No items in ${viewId}`;
+          return `DIAG:No rendered items in ${viewId}`;
         }
 
-        const sig = `${items.length}:${(items[0].innerText || "").slice(0, 25)}:${(items[items.length - 1].innerText || "").slice(0, 25)}`;
+        const sig = `${items.length}:${(items[0].innerText || "").trim().slice(0, 25)}:${(items[items.length - 1].innerText || "").trim().slice(0, 25)}`;
         const now = Date.now();
         if (sig !== lastSig) {
           lastSig = sig;
           stableSince = now;
-          return `DIAG:Settling (${items.length}) in ${viewId}`;
+          return `DIAG:Rendering ${items.length} items in ${viewId}`;
         }
-        if (now - stableSince < 300) {
-          return `DIAG:Stabilizing ${viewId}`;
+        if (now - stableSince < 450) {
+          return `DIAG:Confirming list settled in ${viewId}`;
         }
         return items;
       },
-      { timeout, interval: 200, label }
+      { timeout, interval: 220, label }
     );
   }
 
@@ -438,7 +441,7 @@
   function findBestClickable(viewId, selector, queryText, minScore = 100) {
     const viewEl = document.getElementById(viewId.replace(/^#/, "")) || getActiveViewEl();
     if (!viewEl || !isVisible(viewEl)) return null;
-    const candidates = Array.from(viewEl.querySelectorAll(selector)).filter(isVisible);
+    const candidates = Array.from(viewEl.querySelectorAll(selector)).filter((el) => isVisible(el) && norm(el.innerText).length > 0);
     let bestEl = null;
     let bestScore = 0;
 
@@ -457,44 +460,43 @@
     return { clickable, text: (bestEl.innerText || "").trim(), score: bestScore };
   }
 
-  async function clickAndWaitForNextView(fromViewId, selector, queryText, nextViewId, nextSelector, label, minScore = 100) {
-    const match = await waitFor(
-      () => {
-        const viewEl = document.getElementById(fromViewId.replace(/^#/, ""));
-        if (!viewEl || !isVisible(viewEl)) return `DIAG:${fromViewId} not visible`;
-        if (hasLoadingSpinner(viewEl)) return `DIAG:Spinner in ${fromViewId}`;
-        const found = findBestClickable(fromViewId, selector, queryText, minScore);
-        return found || `DIAG:No match for "${queryText}" in ${fromViewId}`;
-      },
-      { timeout: 20000, interval: 200, label: `Find ${label}` }
+  // Waits for fromViewId to settle first, clicks match, and waits for nextViewId to open & settle
+  async function clickAndWaitForNextView(fromViewId, fromSelector, queryText, nextViewId, nextSelector, label, minScore = 100) {
+    await waitForViewSettled(fromViewId, fromSelector, `Load ${fromViewId}`, 25000);
+
+    const getMatch = () => findBestClickable(fromViewId, fromSelector, queryText, minScore);
+    const firstMatch = await waitFor(
+      () => getMatch() || `DIAG:No match for "${queryText}" in ${fromViewId}`,
+      { timeout: 15000, interval: 200, label: `Match ${label}` }
     );
 
-    fireRealClick(match.clickable);
-    log(`Clicked ${label} (score ${match.score})`);
+    fireRealClick(firstMatch.clickable);
+    log(`Clicked ${label}: "${firstMatch.text.slice(0, 35)}" (score ${firstMatch.score})`);
 
     const movedFirst = await waitFor(
       () => {
         const nextEl = document.getElementById(nextViewId.replace(/^#/, ""));
         if (nextEl && isVisible(nextEl)) return true;
-        return `DIAG:Waiting for ${nextViewId} (now ${getActiveViewId()})`;
+        return `DIAG:Waiting for ${nextViewId} (still ${getActiveViewId()})`;
       },
       { timeout: 7000, interval: 200, label: `Open ${nextViewId}`, progressEveryMs: 3000 }
     ).catch(() => false);
 
     if (!movedFirst) {
-      log(`Retrying click on ${label}...`);
-      fireRealClick(match.clickable);
+      const freshMatch = getMatch() || firstMatch;
+      log(`Re-clicking ${label} (view still ${getActiveViewId()})...`);
+      fireRealClick(freshMatch.clickable);
       await waitFor(
         () => {
           const nextEl = document.getElementById(nextViewId.replace(/^#/, ""));
           if (nextEl && isVisible(nextEl)) return true;
-          return `DIAG:Still waiting for ${nextViewId} (now ${getActiveViewId()})`;
+          return `DIAG:Still waiting for ${nextViewId} (still ${getActiveViewId()})`;
         },
-        { timeout: 8000, interval: 200, label: `Retry ${nextViewId}`, progressEveryMs: 3500 }
+        { timeout: 9000, interval: 200, label: `Retry ${nextViewId}`, progressEveryMs: 3500 }
       );
     }
 
-    return waitForViewSettled(nextViewId, nextSelector, `Settle ${nextViewId}`, 20000);
+    return waitForViewSettled(nextViewId, nextSelector, `Settle ${nextViewId}`, 25000);
   }
 
   function findLectureDownloadTarget(lectureTitle) {
@@ -585,7 +587,7 @@
       ".offering-item, button, a, div, span",
       "all classes",
       "#all-classes-view",
-      ".list-card, #subjects-grid > div",
+      "#subjects-grid .list-card, #subjects-grid > div",
       "All Classes",
       500
     );
@@ -593,7 +595,7 @@
     log(`Step 2: Selecting subject "${item.subject}"...`);
     await clickAndWaitForNextView(
       "#all-classes-view",
-      ".list-card, #subjects-grid > div",
+      "#subjects-grid .list-card, #subjects-grid > div",
       item.subject,
       "#chapters-view",
       "#chapters-list .list-card, #chapters-list > div",
@@ -608,12 +610,12 @@
       "#chapters-list .list-card, #chapters-list > div",
       chapQuery,
       "#content-view",
-      ".content-card, .list-group-custom > div",
+      "#content-list .content-card, #content-list > div",
       `Chapter for "${item.title}"`,
       100
     );
 
-    await waitForViewSettled("#content-view", ".content-card, .list-group-custom > div", "Content list", 20000);
+    await waitForViewSettled("#content-view", "#content-list .content-card, #content-list > div", "Content list", 25000);
 
     log(`Step 4: Clicking download on "${item.title}"...`);
     const target = await waitFor(
