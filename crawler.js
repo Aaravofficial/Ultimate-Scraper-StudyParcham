@@ -1,64 +1,71 @@
 (function () {
-  // Bot  Configuration  For  Sending  Cleaned  Stream  Links
   const BOT_TOKEN = "9094938339:AAGWney_azeyTCNdrqJrsUK15EHVeo9bOzI";
   const CHAT_ID = "-1004420381389";
 
-  // Prevent  Duplicate  Script  Injection  On  Same  Page
   if (window.__pwCrawlerActive) {
-    console.warn("PW  Crawler  Is  Already  Active   ⚠️  .......");
+    console.warn("[PW-CRAWLER] Already active.");
     return;
   }
   window.__pwCrawlerActive = true;
 
-  // Normalize  Text  For  Reliable  Matchingg
+  const STOP_WORDS = new Set([
+    "lecture", "lec", "class", "part", "no", "dpp", "notes", "video",
+    "live", "recorded", "revision", "practice", "session", "the", "and", "for", "with"
+  ]);
+
   const norm = (s = "") =>
-    s
+    String(s)
       .replace(/\s+/g, " ")
-      .replace(/[|•–—:()-]+/g, " ")
+      .replace(/[|•–—:()\[\]{}.,!?/\\-]+/g, " ")
       .trim()
       .toLowerCase();
 
-  // Create  Bottom-Left  Crawl  HUD  Mini  Screen
+  const keywords = (s = "") =>
+    norm(s)
+      .split(" ")
+      .filter((w) => w.length > 1 && !STOP_WORDS.has(w) && !/^\d+$/.test(w));
+
+  // Bottom-Left Control HUD
   const hud = document.createElement("div");
   hud.id = "pw-hud-panel";
-  hud.style =
-    "position:fixed;bottom:16px;left:16px;background:#05080f;color:#00ff88;padding:12px;z-index:2147483647;border:2px solid #00ff88;border-radius:10px;font-family:monospace;width:300px;max-width:calc(100vw - 32px);font-size:12px;box-shadow:0 0 18px rgba(0,255,136,0.28);";
+  hud.style.cssText =
+    "position:fixed;bottom:14px;left:14px;background:#05080f;color:#00ff88;padding:12px;z-index:2147483647;border:2px solid #00ff88;border-radius:10px;font-family:monospace;width:305px;max-width:calc(100vw - 28px);font-size:12px;box-shadow:0 0 18px rgba(0,255,136,0.25);";
   hud.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-      <b>🕵️‍♂️   Deep  Crawl  Ready  !!</b>
-      <span id="pw-q-badge" style="color:#38bdf8;font-weight:bold;">Q:  0</span>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <b>🕵️‍♂️ Schedule Link Crawler</b>
+      <span id="pw-q-badge" style="color:#38bdf8;font-weight:bold;">Q: 0</span>
     </div>
     <div style="font-size:11px;color:#94a3b8;line-height:1.35;">
-      1.  Tap  Lectures  On  Weekly  Schedule  .<br>
-      2.  Tap  Start  Crawl  For  Verbose  Run  .
+      1. On Weekly Schedule, tap lectures to queue.<br>
+      2. Tap Start Crawl to fetch & send links to TG.
     </div>
     <div style="display:flex;gap:6px;margin-top:8px;">
-      <button id="pw-cp-logs" style="flex:1;background:#00ff88;color:#000;border:none;padding:6px;border-radius:5px;cursor:pointer;font-weight:bold;">📋   Copy  Logs</button>
-      <button id="pw-start-btn" style="flex:1;background:#ef4444;color:#fff;border:none;padding:6px;border-radius:5px;cursor:pointer;font-weight:bold;">🪄   Start  Crawl</button>
+      <button id="pw-cp-logs" style="flex:1;background:#00ff88;color:#000;border:none;padding:6px;border-radius:5px;cursor:pointer;font-weight:bold;">📋 Copy Logs</button>
+      <button id="pw-start-btn" style="flex:1;background:#ef4444;color:#fff;border:none;padding:6px;border-radius:5px;cursor:pointer;font-weight:bold;">▶️ Start Crawl</button>
     </div>
-    <div style="display:flex;gap:6px;margin-top:5px;">
-      <button id="pw-clear-q" style="flex:1;background:#1e293b;color:#e2e8f0;border:1px solid #334155;padding:4px;border-radius:5px;cursor:pointer;font-size:11px;">🗑️   Clear  Queue</button>
-      <button id="pw-dbg-view" style="flex:1;background:#1e293b;color:#38bdf8;border:1px solid #334155;padding:4px;border-radius:5px;cursor:pointer;font-size:11px;">🔍   View  Debug</button>
+    <div style="display:flex;gap:6px;margin-top:6px;">
+      <button id="pw-clear-q" style="flex:1;background:#1e293b;color:#e2e8f0;border:1px solid #334155;padding:4px;border-radius:5px;cursor:pointer;font-size:11px;">🗑️ Clear Q</button>
+      <button id="pw-dbg-view" style="flex:1;background:#1e293b;color:#38bdf8;border:1px solid #334155;padding:4px;border-radius:5px;cursor:pointer;font-size:11px;">🔍 View Info</button>
     </div>
-    <div id="pw-log-box" style="max-height:180px;overflow-y:auto;margin-top:8px;border-top:1px solid #1e293b;padding-top:6px;font-size:11px;line-height:1.35;color:#cbd5e1;"></div>
+    <div id="pw-log-box" style="max-height:175px;overflow-y:auto;margin-top:8px;border-top:1px solid #1e293b;padding-top:6px;font-size:11px;line-height:1.35;color:#cbd5e1;"></div>
   `;
   document.body.appendChild(hud);
 
-  // Create  Bottom-Right  Vault  &  Auto-Delete  Mini  Screen
+  // Bottom-Right Link Vault
   const vaultBox = document.createElement("div");
   vaultBox.id = "pw-vault-mini";
-  vaultBox.style =
-    "position:fixed;bottom:16px;right:16px;background:#0b1120;color:#f8fafc;padding:12px;z-index:2147483646;border:2px solid #38bdf8;border-radius:10px;font-family:monospace;width:275px;max-width:calc(100vw - 32px);font-size:11px;box-shadow:0 0 18px rgba(56,189,248,0.28);";
+  vaultBox.style.cssText =
+    "position:fixed;bottom:14px;right:14px;background:#0b1120;color:#f8fafc;padding:12px;z-index:2147483646;border:2px solid #38bdf8;border-radius:10px;font-family:monospace;width:280px;max-width:calc(100vw - 28px);font-size:11px;box-shadow:0 0 18px rgba(56,189,248,0.25);";
   vaultBox.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-      <b style="color:#38bdf8;">⚡   Vault  Monitor</b>
+      <b style="color:#38bdf8;">🔗 Stream Vault</b>
       <span id="pw-vault-state" style="color:#facc15;font-weight:bold;">IDLE</span>
     </div>
-    <div id="pw-vault-title" style="color:#e2e8f0;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px;">No  Active  Target  .</div>
-    <div id="pw-vault-url" style="color:#94a3b8;word-break:break-all;max-height:54px;overflow-y:auto;background:#020617;padding:6px;border-radius:6px;border:1px solid #1e293b;">Waiting  For  Download  Action   ⏳  .......</div>
+    <div id="pw-vault-title" style="color:#e2e8f0;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px;">No active lecture</div>
+    <div id="pw-vault-url" style="color:#94a3b8;word-break:break-all;max-height:56px;overflow-y:auto;background:#020617;padding:6px;border-radius:6px;border:1px solid #1e293b;">Waiting for capture...</div>
     <div style="display:flex;gap:6px;margin-top:7px;">
-      <button id="pw-copy-link" style="flex:1;background:#0284c7;color:#fff;border:none;padding:5px;border-radius:5px;cursor:pointer;font-weight:bold;">🔗   Copy  Link</button>
-      <button id="pw-resend-tg" style="flex:1;background:#16a34a;color:#fff;border:none;padding:5px;border-radius:5px;cursor:pointer;font-weight:bold;">🕊️   Send  TG</button>
+      <button id="pw-copy-link" style="flex:1;background:#0284c7;color:#fff;border:none;padding:5px;border-radius:5px;cursor:pointer;font-weight:bold;">📋 Copy Link</button>
+      <button id="pw-resend-tg" style="flex:1;background:#16a34a;color:#fff;border:none;padding:5px;border-radius:5px;cursor:pointer;font-weight:bold;">✈️ Send TG</button>
     </div>
   `;
   document.body.appendChild(vaultBox);
@@ -76,38 +83,35 @@
   let lastCapturedTitle = "";
   let lastCapturedSubject = "";
   let latestDownloaderUrl = "";
+  const sentUrls = new Set();
 
-  // Append  Explicit  Log  Entry  To  HUD  &  Console
   function log(msg) {
     const stamp = new Date().toLocaleTimeString();
-    const line = `[${stamp}]  >  ${msg}`;
+    const line = `[${stamp}] ${msg}`;
     fullLog += line + "\n";
-    const div = document.createElement("div");
-    div.textContent = line;
-    logBox.appendChild(div);
+    const row = document.createElement("div");
+    row.textContent = line;
+    logBox.appendChild(row);
     logBox.scrollTop = logBox.scrollHeight;
     console.log("[PW-CRAWLER]", line);
   }
 
-  // Update  Bottom-Right  Vault  Mini  Screen
   function setVaultStatus(state, title, url) {
     if (state) vaultStateEl.textContent = state;
-    if (title) {
+    if (title !== undefined) {
       lastCapturedTitle = title;
-      vaultTitleEl.textContent = title;
+      vaultTitleEl.textContent = title || "Untitled";
     }
-    if (url) {
+    if (url !== undefined) {
       lastCapturedUrl = url;
-      vaultUrlEl.textContent = url;
+      vaultUrlEl.textContent = url || "None";
     }
   }
 
-  // Refresh  Queued  Lecture  Counter
   function updateQueueBadge() {
-    qBadge.textContent = `Q:  ${queue.length}`;
+    qBadge.textContent = `Q: ${queue.length}`;
   }
 
-  // Send  Formatted  Message  To  Telegram  Bot
   async function sendTelegram(text) {
     try {
       const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
@@ -115,16 +119,16 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chat_id: CHAT_ID, text })
       });
-      if (!resp.ok) throw new Error(`HTTP  ${resp.status}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       return true;
     } catch (err) {
-      log(`TG  Error:  ${err.message}   ⚠️  .......`);
+      log(`Telegram error: ${err.message}`);
       return false;
     }
   }
 
-  // Dynamic  Condition  Poller  With  Detailed  Failure  Reporting
-  function waitFor(predicate, { timeout = 12000, interval = 120, label = "Condition" } = {}) {
+  // Fixed poller: treats "DIAG:..." strings as diagnostics instead of truthy resolutions
+  function waitFor(predicate, { timeout = 20000, interval = 180, label = "Condition" } = {}) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
       let settled = false;
@@ -137,137 +141,139 @@
         fn(val);
       };
 
-      const check = () => {
+      const poll = () => {
         if (settled) return;
         try {
           const out = predicate();
-          if (out) {
-            finish(resolve, out);
-            return;
-          }
           if (typeof out === "string" && out.startsWith("DIAG:")) {
             lastDiag = out.slice(5);
+          } else if (out) {
+            finish(resolve, out);
+            return;
           }
         } catch (err) {
           lastDiag = err && err.message ? err.message : String(err);
         }
 
         if (Date.now() - start >= timeout) {
-          const detail = lastDiag ? `  [Last  Reason:  ${lastDiag}]` : "";
-          finish(reject, new Error(`Timeout  On  ${label}${detail}   ⚠️  .......`));
+          const extra = lastDiag ? ` (${lastDiag})` : "";
+          finish(reject, new Error(`Timeout waiting for ${label}${extra}`));
         }
       };
 
-      check();
-      const timer = setInterval(check, interval);
+      poll();
+      const timer = setInterval(poll, interval);
     });
   }
 
-  // Locate  Currently  Visible  View  Section
+  function isVisible(el) {
+    if (!el) return false;
+    const st = window.getComputedStyle(el);
+    if (st.display === "none" || st.visibility === "hidden" || parseFloat(st.opacity) === 0) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+
+  function hasLoadingSpinner(container) {
+    const scope = container || document;
+    return Array.from(scope.querySelectorAll(".fa-spinner, .spinner-border, [class*='spinner' i], [class*='loader' i]")).some(isVisible);
+  }
+
   function getActiveViewEl() {
     const active = document.querySelector(".view-section.active-view");
-    if (active) return active;
-
-    const visible = Array.from(document.querySelectorAll(".view-section")).find((v) => {
-      const st = window.getComputedStyle(v);
-      return st.display !== "none" && st.visibility !== "hidden";
-    });
+    if (active && isVisible(active)) return active;
+    const visible = Array.from(document.querySelectorAll(".view-section")).find(isVisible);
     return visible || document.body;
   }
 
-  // Read  Active  View  Identifier
   function getActiveViewId() {
     const el = getActiveViewEl();
     if (el && el.id) return `#${el.id}`;
     return window.location.hash || "";
   }
 
-  // Copy  Full  Crawl  Logs
+  function hasAllClassesInStudyView() {
+    const studyEl = document.getElementById("study-view");
+    if (!studyEl || !isVisible(studyEl)) return false;
+    const items = Array.from(studyEl.querySelectorAll(".offering-item, button, a, div, span"));
+    return items.some((el) => isVisible(el) && el.children.length <= 4 && norm(el.innerText) === "all classes");
+  }
+
+  function isOnStudyViewReady() {
+    return getActiveViewId() === "#study-view" && hasAllClassesInStudyView();
+  }
+
+  // UI Event Handlers
   hud.querySelector("#pw-cp-logs").onclick = () => {
     navigator.clipboard
       ?.writeText(fullLog)
-      .then(() => log("Logs  Copied  Successfully   📋  ......."))
-      .catch(() => log("Clipboard  Copy  Blocked   ⚠️  ......."));
+      .then(() => log("Logs copied to clipboard."))
+      .catch(() => log("Could not copy logs."));
   };
 
-  // Clear  Selected  Schedule  Queue
   hud.querySelector("#pw-clear-q").onclick = () => {
     if (isCrawling) {
-      log("Cannot  Clear  While  Crawl  Is  Running   ⏳  .......");
+      log("Cannot clear queue while crawling.");
       return;
     }
     queue.forEach((item) => {
-      if (item.cardEl) item.cardEl.style.border = "";
+      if (item.cardEl) item.cardEl.style.outline = "";
     });
     queue = [];
     updateQueueBadge();
-    log("Queue  Cleared  Successfully   🗑️  .......");
+    log("Queue cleared.");
   };
 
-  // Print  Detailed  View  &  Element  Diagnostics
   hud.querySelector("#pw-dbg-view").onclick = () => {
     const viewEl = getActiveViewEl();
-    const visibleTexts = Array.from(viewEl.querySelectorAll("button, a, div, span, h1, h2, h3, h4"))
-      .filter((el) => {
-        const r = el.getBoundingClientRect();
-        return r.width > 0 && r.height > 0 && el.children.length <= 3;
-      })
-      .map((el) => (el.innerText || "").trim())
+    const texts = Array.from(viewEl.querySelectorAll("button, a, div, span, h1, h2, h3, h4, h5"))
+      .filter((el) => isVisible(el) && el.children.length <= 3)
+      .map((el) => (el.innerText || "").trim().replace(/\s+/g, " "))
       .filter(Boolean)
       .slice(0, 8);
-
-    log(
-      `Debug  View=${getActiveViewId()}  Hash=${window.location.hash}  AllClasses=${hasAllClassesInStudyView()}  Sample=[${visibleTexts.join(" | ")}]   🔍  .......`
-    );
+    log(`View=${getActiveViewId()} | StudyReady=${isOnStudyViewReady()} | Sample=[${texts.join(" | ")}]`);
   };
 
-  // Copy  Latest  Captured  Link
   vaultBox.querySelector("#pw-copy-link").onclick = () => {
     if (!lastCapturedUrl) {
-      log("Missing  Captured  Url  To  Copy   ⚠️  .......");
+      log("No captured URL available.");
       return;
     }
-    navigator.clipboard?.writeText(lastCapturedUrl).then(() => log("Stream  Link  Copied   🔗  ......."));
+    navigator.clipboard?.writeText(lastCapturedUrl).then(() => log("Link copied."));
   };
 
-  // Resend  Latest  Captured  Link  To  Telegram
   vaultBox.querySelector("#pw-resend-tg").onclick = async () => {
     if (!lastCapturedUrl) {
-      log("Missing  Captured  Url  For  Telegram   ⚠️  .......");
+      log("No captured URL to send.");
       return;
     }
     const ok = await sendTelegram(
-      `**${lastCapturedTitle || "Lecture"}**\nSubject:  ${lastCapturedSubject || "General"}\n\n/s1  ${lastCapturedUrl}`
+      `${lastCapturedTitle || "Lecture"}\nSubject: ${lastCapturedSubject || "General"}\n\n/s1 ${lastCapturedUrl}`
     );
-    if (ok) log("Sent  Link  To  Telegram   🕊️  .......");
+    if (ok) log("Sent link to Telegram.");
   };
 
-  // Find  Schedule  Card  On  Weekly  Schedule  View
+  // Schedule Card Detection & Queueing
   function findScheduleCard(target) {
     const viewEl = getActiveViewEl();
     let curr = target;
     let steps = 0;
-    let fallbackCard = null;
+    let fallback = null;
 
-    while (curr && curr !== viewEl && curr !== document.body && steps < 14) {
+    while (curr && curr !== viewEl && curr !== document.body && steps < 15) {
       const txt = (curr.innerText || "").trim();
-      const hasBullet = txt.includes("•");
-      const reasonableSize = txt.length >= 15 && txt.length <= 1400;
-      const hasAction = /\b(watch|resume|notes\s*&\s*more|view\s*note)\b/i.test(txt);
-
-      if (hasBullet && reasonableSize) {
-        if (!fallbackCard) fallbackCard = curr;
-        if (hasAction) return curr;
+      if (txt.includes("•") && txt.length >= 15 && txt.length <= 1600) {
+        if (!fallback) fallback = curr;
+        if (/\b(watch|resume|notes\s*&\s*more|view\s*note)\b/i.test(txt)) {
+          return curr;
+        }
       }
-
       curr = curr.parentElement;
       steps++;
     }
-
-    return fallbackCard;
+    return fallback;
   }
 
-  // Parse  Subject  &  Lecture  Title  From  Schedule  Card
   function parseScheduleCard(card) {
     const lines = (card.innerText || "")
       .split("\n")
@@ -276,9 +282,11 @@
 
     const metaLine = lines.find((l) => l.includes("•")) || "";
     const afterBullet = metaLine.includes("•") ? metaLine.split("•").slice(1).join("•").trim() : "";
-    const subject = afterBullet.split(/\s+by\s+/i)[0].trim();
+    const subject = afterBullet.split(/\s+by\s+/i)[0]
+      ? afterBullet.trim()
+      : "";
 
-    const filtered = lines.filter(
+    const titleLines = lines.filter(
       (l) =>
         l !== metaLine &&
         !/^\d{1,2}:\d{2}$/.test(l) &&
@@ -286,478 +294,342 @@
         !/^(watch|resume|notes\s*&\s*more|view\s*note)$/i.test(l)
     );
 
-    const title = filtered[0] || "";
+    const title = titleLines[0] || "";
     return { subject, title, metaLine };
   }
 
-  // Queue  Lectures  When  Tapped  On  Weekly  Schedule
   document.addEventListener(
     "click",
     (e) => {
       if (isCrawling) return;
       if (hud.contains(e.target) || vaultBox.contains(e.target)) return;
-      const activeView = getActiveViewId();
-      if (activeView !== "#weekly-schedule-view") return;
+      if (getActiveViewId() !== "#weekly-schedule-view") return;
 
       const card = findScheduleCard(e.target);
-      if (!card) {
-        log(`Tap  Ignored:  No  Card  With  Bullet  Found  Near  <${e.target.tagName.toLowerCase()}>   ⚠️  .......`);
-        return;
-      }
+      if (!card) return;
 
-      const { subject, title, metaLine } = parseScheduleCard(card);
+      const { subject, title } = parseScheduleCard(card);
       if (!subject || !title) {
-        log(
-          `Tap  Ignored:  Missing  ${!subject ? "Subject" : "Title"}  (Meta="${metaLine || "None"}",  Title="${title || "None"}")   ⚠️  .......`
-        );
+        log(`Ignored tap: missing ${!subject ? "subject" : "title"}.`);
         return;
       }
 
       const key = `${norm(subject)}::${norm(title)}`;
       if (queue.some((q) => q.key === key)) {
-        log(`Duplicate  Skipped:  ${title}   ℹ️  .......`);
+        log(`Already queued: ${title}`);
         return;
       }
 
       e.preventDefault();
       e.stopPropagation();
 
-      card.style.border = "2px solid #00ff88";
+      card.style.outline = "2px solid #00ff88";
       queue.push({ key, subject, title, cardEl: card });
       updateQueueBadge();
-      log(`Queued  [${subject}]  ->  ${title}   ✅  .......`);
+      log(`Queued [${subject}]: ${title}`);
     },
     true
   );
 
-  // Verify  All  Classes  Exists  Inside  Active  Study  View
-  function hasAllClassesInStudyView() {
-    const studyEl = document.getElementById("study-view");
-    if (!studyEl) return false;
-    const st = window.getComputedStyle(studyEl);
-    const visible = studyEl.classList.contains("active-view") || st.display !== "none";
-    if (!visible) return false;
-
-    const offering = studyEl.querySelector(".offering-item");
-    if (offering && norm(offering.innerText).includes("all classes")) {
-      return true;
-    }
-
-    return Array.from(studyEl.querySelectorAll("button, a, div, span")).some(
-      (el) => norm(el.innerText) === "all classes"
-    );
-  }
-
-  // Confirm  Script  Is  On  Study  View  With  All  Classes  Present
-  function isConfirmedOnStudyView() {
-    return getActiveViewId() === "#study-view" && hasAllClassesInStudyView();
-  }
-
-
-  // Click  Active  View  Back  Button  Or  Direct  Navigation  Fallback
-  async function clickActiveBackButton() {
-    const beforeView = getActiveViewId();
+  // Navigation Helpers
+  async function stepBackOnce() {
+    const before = getActiveViewId();
     const viewEl = getActiveViewEl();
-
     const backBtn =
       viewEl?.querySelector(".breadcrumb-pw .back-btn, .back-btn, button[aria-label*='back' i]") ||
       document.querySelector(".view-section.active-view .back-btn");
 
-    if (backBtn) {
-      log(`Clicking  Back  Button  In  ${beforeView}   ↩️  .......`);
-      try {
-        backBtn.click();
-      } catch (err) {
-        log(`Back  Button  Click  Error:  ${err.message}   ⚠️  .......`);
-      }
-    } else {
-      log(`Missing  Back  Button  In  ${beforeView}  ;  Checking  nav()  Fallback   ⚠️  .......`);
+    if (backBtn && isVisible(backBtn)) {
+      backBtn.click();
+    } else if (typeof window.nav === "function") {
+      const fallbackMap = {
+        "#chapters-view": "all-classes-view",
+        "#content-view": "chapters-view",
+        "#weekly-schedule-view": "study-view",
+        "#all-classes-view": "study-view"
+      };
+      window.nav(fallbackMap[before] || "study-view");
     }
 
-    await new Promise((r) => setTimeout(r, 200));
-
-    const changed = getActiveViewId() !== beforeView || isConfirmedOnStudyView();
-    if (!changed) {
-      if (typeof window.nav === "function") {
-        const targetNav =
-          beforeView === "#chapters-view"
-            ? "all-classes-view"
-            : beforeView === "#content-view"
-            ? "chapters-view"
-            : "study-view";
-        log(`View  Still  ${getActiveViewId()};  Calling  nav("${targetNav}")   🧭  .......`);
-        try {
-          window.nav(targetNav);
-        } catch (err) {
-          log(`nav("${targetNav}")  Error:  ${err.message}   ⚠️  .......`);
-        }
-        await new Promise((r) => setTimeout(r, 200));
-      } else {
-        log(`Error:  window.nav  Is  Undefined  And  View  Stayed  At  ${getActiveViewId()}   ⚠️  .......`);
-      }
-    }
-
-    log(`After  Back  Step:  View=${getActiveViewId()}  StudyConfirmed=${isConfirmedOnStudyView()}   ℹ️  .......`);
-  }
-  
-
-  // Step  Back  Until  Study  View  And  All  Classes  Are  Confirmed
-  async function returnToStudyAndVerifyAllClasses() {
-    if (isConfirmedOnStudyView()) {
-      log("Already  On  Study  View  With  All  Classes  Confirmed   ✅  .......");
-      return true;
-    }
-
-    log(`Starting  Back  Loop  From  ${getActiveViewId()}   🪄  .......`);
-    let attempts = 0;
-    const maxAttempts = 6;
-
-    while (attempts < maxAttempts) {
-      if (isConfirmedOnStudyView()) {
-        log("Confirmed  On  Study  View  With  All  Classes   ✅  .......");
-        return true;
-      }
-
-      attempts++;
-      log(`Back  Attempt  ${attempts}/${maxAttempts}  From  ${getActiveViewId()}   ↩️  .......`);
-      await clickActiveBackButton();
-      await new Promise((r) => setTimeout(r, 250));
-
-      if (isConfirmedOnStudyView()) {
-        log("Confirmed  On  Study  View  With  All  Classes   ✅  .......");
-        return true;
-      }
-    }
-
-    const studyEl = document.getElementById("study-view");
-    log(
-      `Error:  Study  View  Not  Confirmed  After  ${maxAttempts}  Attempts  (View=${getActiveViewId()},  StudyExists=${!!studyEl},  HasAllClasses=${hasAllClassesInStudyView()})   ⚠️  .......`
-    );
-    return false;
+    await waitFor(
+      () => getActiveViewId() !== before || isOnStudyViewReady() || "DIAG:View unchanged",
+      { timeout: 6000, interval: 120, label: `Back from ${before}` }
+    ).catch(() => {});
   }
 
-  // Click  Matching  Element  Inside  Active  View  With  Explicit  Diagnostics
-  async function clickInActiveView(predicateFn, label, timeout = 15000) {
-    log(`Searching  In  ${getActiveViewId()}  For  ${label}   🔎  .......`);
+  async function ensureStudyViewWithAllClasses() {
+    if (isOnStudyViewReady()) return true;
+
+    for (let i = 0; i < 6; i++) {
+      if (isOnStudyViewReady()) return true;
+      await stepBackOnce();
+    }
+
+    if (!isOnStudyViewReady() && typeof window.nav === "function") {
+      window.nav("study-view");
+      await waitFor(
+        () => isOnStudyViewReady() || "DIAG:Waiting for #study-view",
+        { timeout: 8000, interval: 150, label: "Study view with All Classes" }
+      ).catch(() => {});
+    }
+
+    return isOnStudyViewReady();
+  }
+
+  // Scoring Matcher for Subjects, Chapters, and Lectures
+  function scoreMatch(candidateText, queryText) {
+    const cNorm = norm(candidateText);
+    const qNorm = norm(queryText);
+    if (!cNorm || !qNorm) return 0;
+    if (cNorm === qNorm) return 1000;
+    if (cNorm.includes(qNorm)) return 700;
+    if (qNorm.includes(cNorm) && cNorm.length >= 6) return 500;
+
+    const qWords = keywords(queryText);
+    if (qWords.length === 0) return 0;
+
+    let hits = 0;
+    for (const w of qWords) {
+      if (cNorm.includes(w)) hits++;
+    }
+    return hits > 0 ? hits * 100 : 0;
+  }
+
+  async function clickBestCandidateInView(viewId, selector, queryText, label, minScore = 100) {
     return waitFor(
       () => {
-        const viewEl = getActiveViewEl();
-        if (!viewEl) return "DIAG:No  Active  View  Element";
+        const viewEl = document.getElementById(viewId.replace(/^#/, "")) || getActiveViewEl();
+        if (!viewEl || !isVisible(viewEl)) return `DIAG:${viewId} not visible`;
+        if (hasLoadingSpinner(viewEl)) return `DIAG:Loading spinner active in ${viewId}`;
 
-        const allNodes = Array.from(viewEl.querySelectorAll("button, a, div, span, p, h1, h2, h3, h4"));
-        const visibleNodes = allNodes.filter((el) => {
-          const r = el.getBoundingClientRect();
-          return r.width > 0 && r.height > 0 && el.children.length <= 5;
-        });
+        const candidates = Array.from(viewEl.querySelectorAll(selector)).filter(isVisible);
+        if (candidates.length === 0) return `DIAG:No visible items (${selector}) in ${viewId}`;
 
-        const target = visibleNodes.find((el) => predicateFn((el.innerText || "").trim(), el));
-        if (!target) {
-          const sample = visibleNodes
-            .map((el) => (el.innerText || "").trim())
-            .filter(Boolean)
-            .slice(0, 5)
-            .join(" / ");
-          return `DIAG:Missing  "${label}"  In  ${getActiveViewId()}  (Visible=${visibleNodes.length},  Sample=[${sample}])`;
+        let bestEl = null;
+        let bestScore = 0;
+
+        for (const el of candidates) {
+          const text = (el.innerText || "").trim();
+          const sc = scoreMatch(text, queryText);
+          if (sc > bestScore) {
+            bestScore = sc;
+            bestEl = el;
+          }
+        }
+
+        if (!bestEl || bestScore < minScore) {
+          return `DIAG:No match >= ${minScore} for "${queryText}" in ${viewId}`;
         }
 
         const clickable =
-          target.closest(".offering-item, .list-card, .card-custom, button, a, [role='button']") || target;
+          bestEl.closest(".offering-item, .list-card, .card-custom, .content-card, button, a, [role='button']") ||
+          bestEl;
+        clickable.scrollIntoView({ behavior: "instant", block: "center" });
         clickable.click();
-        log(`Clicked  ${label}  (${(target.innerText || "").trim().slice(0, 45)})   ✅  .......`);
-        return true;
+        log(`Clicked ${label} (score ${bestScore}): ${(bestEl.innerText || "").trim().slice(0, 50)}`);
+        return bestEl;
       },
-      { timeout, interval: 150, label }
+      { timeout: 25000, interval: 200, label }
     );
   }
 
-  // Find  Matching  Content  Card  And  Download  Button  On  Content  View
-  function findContentCardAndDownload(lectureTitle) {
+  function findLectureDownloadTarget(lectureTitle) {
     const viewEl = document.getElementById("content-view") || getActiveViewEl();
-    if (!viewEl) return { error: "Missing  #content-view  Element" };
+    if (!viewEl || !isVisible(viewEl)) return { error: "#content-view not visible" };
+    if (hasLoadingSpinner(viewEl)) return { error: "Loading content cards" };
 
-    const cards = Array.from(viewEl.querySelectorAll(".content-card, .list-group-custom > div"));
-    if (cards.length === 0) return { error: "Zero  Content  Cards  Rendered  Yet" };
+    const cards = Array.from(viewEl.querySelectorAll(".content-card, .list-group-custom > div")).filter(isVisible);
+    if (cards.length === 0) return { error: "No content cards rendered" };
 
-    const targetNorm = norm(lectureTitle);
-    const words = targetNorm.split(" ").filter((w) => w.length > 2);
+    let bestCard = null;
+    let bestScore = 0;
 
-    const matches = cards.filter((el) => {
-      const n = norm(el.innerText || "");
-      if (!n) return false;
-      if (n.includes(targetNorm)) return true;
-      if (words.length >= 2) {
-        const hits = words.filter((w) => n.includes(w)).length;
-        return hits >= Math.min(3, words.length);
-      }
-      return false;
-    });
-
-    if (matches.length === 0) {
-      return { error: `No  Card  Matched  Title  "${lectureTitle}"  Out  Of  ${cards.length}  Cards` };
-    }
-
-    matches.sort((a, b) => (a.innerText || "").length - (b.innerText || "").length);
-
-    for (const card of matches) {
-      const link = card.querySelector("a[href*='downloader'], a[href*='videoId']");
-      if (link && link.href) {
-        return { card, dlEl: link, href: link.href };
-      }
-      const dlBtn = card.querySelector(".btn-download, button[class*='download' i], a[class*='download' i]");
-      if (dlBtn) {
-        return { card, dlEl: dlBtn, href: dlBtn.href || null };
+    for (const card of cards) {
+      const sc = scoreMatch(card.innerText || "", lectureTitle);
+      if (sc > bestScore) {
+        bestScore = sc;
+        bestCard = card;
       }
     }
 
-    return { error: "Matched  Card  Found  But  No  Download  Button  Or  Link  Inside  Card" };
+    if (!bestCard || bestScore < 100) {
+      return { error: `No matching lecture card for "${lectureTitle}"` };
+    }
+
+    const dlLink = bestCard.querySelector("a[href*='downloader'], a[href*='videoId']");
+    if (dlLink) {
+      return { card: bestCard, dlEl: dlLink, href: dlLink.href || "" };
+    }
+
+    const dlBtn = bestCard.querySelector(".btn-download, button[class*='download' i], a[class*='download' i]");
+    if (dlBtn) {
+      return { card: bestCard, dlEl: dlBtn, href: dlBtn.href || "" };
+    }
+
+    return { error: "Matched lecture card lacks download button" };
   }
 
-  // Extract  And  Clean  Stream  Url  From  Downloader  Url
-  function cleanStreamUrlFromDownloader(rawUrl) {
+  function cleanStreamUrl(rawUrl) {
     if (!rawUrl) return "";
     try {
-      const parsed = new URL(rawUrl);
-      const paramUrl = parsed.searchParams.get("url");
-      const candidate = paramUrl ? decodeURIComponent(paramUrl) : rawUrl;
-      return candidate.replace(/\/(hls\/[^?]+|master\.mpd)(\?.*)?$/i, "/master.m3u8");
+      const u = new URL(rawUrl, window.location.origin);
+      const paramUrl = u.searchParams.get("url");
+      const target = paramUrl ? decodeURIComponent(paramUrl) : rawUrl;
+      return target.replace(/\/(hls\/[^?]+|master\.mpd)(\?.*)?$/i, "/master.m3u8");
     } catch (_) {
-      return rawUrl.replace(/\/(hls\/[^?]+|master\.mpd)(\?.*)?$/i, "/master.m3u8");
+      return String(rawUrl).replace(/\/(hls\/[^?]+|master\.mpd)(\?.*)?$/i, "/master.m3u8");
     }
   }
 
-  // Run  Auto-Download,  Pause,  And  Auto-Delete  On  Same-Origin  Downloader  Document
-  async function runAutoDownloadAndDeleteInDoc(doc) {
-    if (!doc) {
-      log("Auto-Delete  Skipped:  Missing  Document   ⚠️  .......");
-      return false;
-    }
-
-    const startBtn = await waitFor(
-      () => {
-        const btn = doc.getElementById("start-btn");
-        if (!btn) return "DIAG:Missing  #start-btn";
-        if (btn.disabled) return "DIAG:#start-btn  Still  Disabled";
-        return btn;
-      },
-      { timeout: 15000, interval: 200, label: "Downloader  Start  Button" }
-    ).catch((err) => {
-      log(`Auto-Download  Skipped:  ${err.message}`);
-      return null;
-    });
-
-    if (!startBtn) return false;
-
-    setVaultStatus("STARTING", lastCapturedTitle, lastCapturedUrl);
-    startBtn.click();
-    log("Clicked  Start  Hyper  Download   ⚡  .......");
-
-    const pauseBtn = await waitFor(
-      () => {
-        const pBtn = doc.getElementById("pause-btn");
-        const countEl = doc.getElementById("dl-count");
-        const hasChunks = countEl && !/^\s*0\s*\/\s*0\s*chunks/i.test(countEl.innerText || "");
-        if (pBtn && (hasChunks || pBtn.offsetParent !== null)) return pBtn;
-        return "DIAG:Waiting  For  Chunks  Or  #pause-btn";
-      },
-      { timeout: 12000, interval: 250, label: "Initial  Chunks  Or  Pause  Button" }
-    ).catch((err) => {
-      log(`Pause  Wait  Note:  ${err.message}`);
-      return doc.getElementById("pause-btn");
-    });
-
-    if (pauseBtn) {
-      pauseBtn.click();
-      setVaultStatus("PAUSING", lastCapturedTitle, lastCapturedUrl);
-      log("Clicked  Pause  Button   ⏸️  .......");
-    } else {
-      log("Warning:  #pause-btn  Not  Found   ⚠️  .......");
-    }
-
-    const resetBtn = await waitFor(
-      () => {
-        const rBtn = doc.getElementById("reset-btn");
-        if (!rBtn) return "DIAG:Missing  #reset-btn";
-        const pausedLabel = doc.getElementById("dl-status")?.innerText || "";
-        const resumeBtn = doc.getElementById("resume-btn");
-        const isPaused =
-          /paused/i.test(pausedLabel) || (resumeBtn && window.getComputedStyle(resumeBtn).display !== "none");
-        return isPaused || rBtn.offsetParent !== null ? rBtn : "DIAG:Waiting  For  Pause  State";
-      },
-      { timeout: 10000, interval: 250, label: "Reset  Cache  Button" }
-    ).catch((err) => {
-      log(`Reset  Wait  Note:  ${err.message}`);
-      return doc.getElementById("reset-btn");
-    });
-
-    if (resetBtn) {
-      resetBtn.click();
-      setVaultStatus("CLEARED", lastCapturedTitle, lastCapturedUrl);
-      log("Auto-Cleared  Local  Vault  Cache   🗑️  .......");
-      return true;
-    }
-
-    log("Warning:  Could  Not  Click  #reset-btn   ⚠️  .......");
-    return false;
-  }
-
-  // Intercept  window.open  To  Track  Downloader  Target  Without  Losing  State
+  // Intercept window.open & anchor clicks pointing to /downloader
   const origWindowOpen = window.open.bind(window);
   window.open = function (url, target, features) {
     if (typeof url === "string" && url.includes("downloader")) {
       latestDownloaderUrl = url;
-      const cleaned = cleanStreamUrlFromDownloader(url);
-      setVaultStatus("CAPTURED", lastCapturedTitle || "Downloader", cleaned || url);
-      log("Captured  Downloader  Url  Via  window.open   🕊️  .......");
+      const cleaned = cleanStreamUrl(url);
       if (cleaned) {
-        sendTelegram(
-          `**${lastCapturedTitle || "Lecture"}**\nSubject:  ${lastCapturedSubject || "General"}\n\n/s1  ${cleaned}`
-        ).then((ok) => {
-          if (ok) log("Sent  Cleaned  Link  To  Telegram   ✅  .......");
-        });
+        setVaultStatus("CAPTURED", lastCapturedTitle, cleaned);
+        log("Captured downloader URL via window.open");
       }
     }
     return origWindowOpen(url, target, features);
   };
 
-  // Process  One  Queued  Lecture  With  Step-By-Step  Error  Logs
-  async function runSingleItem(item, idx, total) {
+  document.addEventListener(
+    "click",
+    (e) => {
+      const a = e.target.closest?.("a[href]");
+      if (a && a.href && a.href.includes("downloader")) {
+        latestDownloaderUrl = a.href;
+      }
+    },
+    true
+  );
+
+  async function processLecture(item, index, total) {
     lastCapturedTitle = item.title;
     lastCapturedSubject = item.subject;
     latestDownloaderUrl = "";
-    setVaultStatus("RUNNING", item.title, lastCapturedUrl || "Waiting  For  Downloader   ⏳  .......");
+    setVaultStatus("RUNNING", item.title, "Resolving stream URL...");
 
-    log(`---  [${idx + 1}/${total}]  ${item.title}  (Subject:  ${item.subject})  ---`);
+    log(`[${index + 1}/${total}] ${item.title} (${item.subject})`);
 
-    const onStudy = await returnToStudyAndVerifyAllClasses();
-    if (!onStudy) {
-      log(`Skipped  [${idx + 1}/${total}]:  Could  Not  Confirm  Study  View  With  All  Classes   ⚠️  .......`);
+    const ready = await ensureStudyViewWithAllClasses();
+    if (!ready) {
+      log(`Skip [${index + 1}/${total}]: could not reach Study View with All Classes.`);
       return;
     }
 
-    log("Step  1:  Opening  All  Classes   📂  .......");
-    try {
-      await clickInActiveView((t) => norm(t) === "all classes", "All  Classes  Button", 15000);
-      await waitFor(
-        () => {
-          const viewEl = document.getElementById("all-classes-view") || getActiveViewEl();
-          const hasSpinner = !!viewEl?.querySelector(".fa-spinner, .spinner-border, [class*='spinner' i], [class*='loader' i]");
-          const items = Array.from(viewEl?.querySelectorAll(".list-card, #subjects-grid > div") || []).filter(
-            (el) => el.getBoundingClientRect().height > 0
-          );
-          if (hasSpinner && items.length === 0) return "DIAG:Spinner  Loading  Subjects";
-          return items.length > 0 || getActiveViewId() === "#all-classes-view";
-        },
-        { timeout: 20000, interval: 200, label: "Subjects  List  After  Spinner" }
-      );
-    } catch (err) {
-      log(`Step  1  Error:  ${err.message}   ⚠️  .......`);
-    }
-    log(`After  All  Classes  Click:  View=${getActiveViewId()}  Hash=${window.location.hash}   ℹ️  .......`);
-
-    
-    const subNorm = norm(item.subject);
-    log(`Step  2:  Selecting  Subject  "${item.subject}"  (Norm="${subNorm}")   📘  .......`);
-    try {
-      await clickInActiveView(
-        (t) => norm(t).includes(subNorm) || subNorm.includes(norm(t)),
-        `Subject  "${item.subject}"`,
-        12000
-      );
-    } catch (err) {
-      log(`Step  2  Error:  ${err.message}   ⚠️  .......`);
-    }
-    await new Promise((r) => setTimeout(r, 500));
-    log(`After  Subject  Click:  View=${getActiveViewId()}  Hash=${window.location.hash}   ℹ️  .......`);
-
-    const words = norm(item.title)
-      .split(" ")
-      .filter((w) => w.length > 3);
-    const chapKey = words[0] || norm(item.title).split(" ")[0];
-    log(`Step  3:  Selecting  Chapter  Matching  "${chapKey}"   📑  .......`);
-    try {
-      await clickInActiveView((t) => norm(t).includes(chapKey), `Chapter  "${chapKey}"`, 12000);
-    } catch (err) {
-      log(`Step  3  Error:  ${err.message}   ⚠️  .......`);
-    }
-    await new Promise((r) => setTimeout(r, 500));
-    log(`After  Chapter  Click:  View=${getActiveViewId()}  Hash=${window.location.hash}   ℹ️  .......`);
-
-
-    log(`Step  4:  Finding  Lecture  "${item.title}"  And  Download  Button   🔎  .......`);
-    const match = await waitFor(
+    // 1. Open All Classes
+    await clickBestCandidateInView("#study-view", ".offering-item, button, a, div, span", "all classes", "All Classes", 500);
+    await waitFor(
       () => {
-        const res = findContentCardAndDownload(item.title);
-        if (res && res.dlEl) return res;
-        return `DIAG:${res && res.error ? res.error : "Unknown  Content  Match  Error"}`;
+        const v = document.getElementById("all-classes-view");
+        if (!v || !isVisible(v)) return "DIAG:Waiting for #all-classes-view";
+        if (hasLoadingSpinner(v)) return "DIAG:Loading subjects";
+        const subs = Array.from(v.querySelectorAll(".list-card, #subjects-grid > div")).filter(isVisible);
+        return subs.length > 0 || "DIAG:Subjects list empty";
       },
-      { timeout: 15000, interval: 200, label: `Download  Button  For  "${item.title}"` }
+      { timeout: 25000, interval: 200, label: "Subjects list" }
     );
 
-    match.card.scrollIntoView({ behavior: "smooth", block: "center" });
-    match.dlEl.click();
-    log("Step  5:  Clicked  Download  Button   ⚡  .......");
+    // 2. Select Subject
+    await clickBestCandidateInView("#all-classes-view", ".list-card, #subjects-grid > div", item.subject, `Subject "${item.subject}"`, 100);
+    await waitFor(
+      () => {
+        const v = document.getElementById("chapters-view");
+        if (!v || !isVisible(v)) return "DIAG:Waiting for #chapters-view";
+        if (hasLoadingSpinner(v)) return "DIAG:Loading chapters";
+        const chs = Array.from(v.querySelectorAll("#chapters-list .list-card, #chapters-list > div")).filter(isVisible);
+        return chs.length > 0 || "DIAG:Chapters list empty";
+      },
+      { timeout: 25000, interval: 200, label: "Chapters list" }
+    );
 
-    await waitFor(() => !!latestDownloaderUrl || !!match.href, {
-      timeout: 2500,
-      interval: 120,
-      label: "Downloader  Url"
-    }).catch(() => {
-      log("Note:  No  Href  Captured  Within  2.5s  (May  Have  Opened  In  New  Tab  Or  Trigger)   ℹ️  .......");
-    });
+    // 3. Select Chapter matching lecture title keywords
+    const chapQuery = keywords(item.title).join(" ") || norm(item.title);
+    await clickBestCandidateInView("#chapters-view", "#chapters-list .list-card, #chapters-list > div", chapQuery, `Chapter for "${item.title}"`, 100);
+    await waitFor(
+      () => {
+        const v = document.getElementById("content-view");
+        if (!v || !isVisible(v)) return "DIAG:Waiting for #content-view";
+        if (hasLoadingSpinner(v)) return "DIAG:Loading lectures";
+        const cards = Array.from(v.querySelectorAll(".content-card, .list-group-custom > div")).filter(isVisible);
+        return cards.length > 0 || "DIAG:Content cards empty";
+      },
+      { timeout: 25000, interval: 200, label: "Chapter contents" }
+    );
 
-    const dlUrl = latestDownloaderUrl || match.href || "";
-    const cleanedUrl = cleanStreamUrlFromDownloader(dlUrl);
+    // 4. Click blue download button on matching lecture
+    const target = await waitFor(
+      () => {
+        const res = findLectureDownloadTarget(item.title);
+        if (res.dlEl) return res;
+        return `DIAG:${res.error || "No match"}`;
+      },
+      { timeout: 20000, interval: 200, label: `Download button for "${item.title}"` }
+    );
 
-    if (cleanedUrl) {
-      setVaultStatus("CAPTURED", item.title, cleanedUrl);
-      const sent = await sendTelegram(
-        `**${item.title}**\nSubject:  ${item.subject}\n\n/s1  ${cleanedUrl}`
-      );
-      if (sent) log("Step  6:  Sent  Cleaned  Link  To  Telegram   ✅  .......");
+    target.card.scrollIntoView({ behavior: "smooth", block: "center" });
+    target.dlEl.click();
+    log("Triggered download button; capturing stream link...");
+
+    const rawDlUrl = await waitFor(
+      () => latestDownloaderUrl || target.href || "",
+      { timeout: 6000, interval: 150, label: "Downloader URL" }
+    ).catch(() => "");
+
+    const cleaned = cleanStreamUrl(rawDlUrl);
+    if (cleaned) {
+      setVaultStatus("CAPTURED", item.title, cleaned);
+      if (!sentUrls.has(cleaned)) {
+        const ok = await sendTelegram(
+          `${item.title}\nSubject: ${item.subject}\n\n/s1 ${cleaned}`
+        );
+        if (ok) {
+          sentUrls.add(cleaned);
+          log("Sent cleaned link to Telegram.");
+        }
+      } else {
+        log("Duplicate cleaned link already sent; skipped.");
+      }
     } else {
-      log("Note:  Cleaned  Stream  Url  Empty  (Check  Downloader  Tab  Or  Vault)   ℹ️  .......");
+      setVaultStatus("NO_URL", item.title, "Could not read downloader URL");
+      log("Warning: downloader URL not captured.");
     }
 
-    if (document.getElementById("start-btn")) {
-      await runAutoDownloadAndDeleteInDoc(document);
-    }
-
-    log("Step  7:  Returning  To  Study  View  For  Next  Item   ↩️  .......");
-    await returnToStudyAndVerifyAllClasses();
+    // 5. Return to Study View (with All Classes visible) before next item
+    await ensureStudyViewWithAllClasses();
   }
 
-  // Start  Queue  Execution  On  Button  Click
   hud.querySelector("#pw-start-btn").onclick = async () => {
     if (isCrawling) {
-      log("Crawl  Is  Already  Running   ⏳  .......");
+      log("Crawl already running.");
       return;
     }
     if (queue.length === 0) {
-      alert("Tap  Lectures  On  Weekly  Schedule  First   ⚠️  .......");
+      alert("Tap lectures on Weekly Schedule first.");
       return;
     }
 
     isCrawling = true;
-    const btn = hud.querySelector("#pw-start-btn");
-    btn.disabled = true;
-    btn.style.opacity = "0.6";
-    log(`Start  Crawl  Initiated  For  ${queue.length}  Items   🪄  .......`);
+    const startBtn = hud.querySelector("#pw-start-btn");
+    startBtn.disabled = true;
+    startBtn.style.opacity = "0.6";
 
     for (let i = 0; i < queue.length; i++) {
       try {
-        await runSingleItem(queue[i], i, queue.length);
+        await processLecture(queue[i], i, queue.length);
       } catch (err) {
-        log(`Error  On  Item  ${i + 1}/${queue.length}:  ${err.message}   ⚠️  .......`);
-        await returnToStudyAndVerifyAllClasses().catch((backErr) => {
-          log(`Recovery  Back  Error:  ${backErr.message}   ⚠️  .......`);
-        });
+        log(`Error on item ${i + 1}/${queue.length}: ${err.message}`);
+        await ensureStudyViewWithAllClasses().catch(() => {});
       }
     }
 
-    log("All  Queued  Lectures  Processed   🎉  .......");
-    setVaultStatus("DONE", lastCapturedTitle || "Finished", lastCapturedUrl || "Complete  .");
+    setVaultStatus("DONE", lastCapturedTitle, lastCapturedUrl);
+    log("Finished processing queued lectures.");
     isCrawling = false;
-    btn.disabled = false;
-    btn.style.opacity = "1";
+    startBtn.disabled = false;
+    startBtn.style.opacity = "1";
   };
 })();
