@@ -138,7 +138,7 @@
 
   function hasLoadingSpinner(container) {
     const scope = container || document;
-    const nodes = scope.querySelectorAll(".fa-spinner, .spinner-border, [class*='spinner' i], [class*='loader' i]");
+    const nodes = scope.querySelectorAll(".fa-spinner, .spinner-border, [class*='spinner' i], [class*='loader' i], .loader-center");
     for (const n of nodes) {
       if (isVisible(n)) return true;
     }
@@ -178,7 +178,7 @@
     return getActiveViewId() === "#study-view" && !!findAllClassesEl();
   }
 
-  function waitFor(predicate, { timeout = 25000, interval = 200, label = "Condition", progressEveryMs = 4000 } = {}) {
+  function waitFor(predicate, { timeout = 30000, interval = 200, label = "Condition", progressEveryMs = 4000 } = {}) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
       let lastProgress = start;
@@ -223,6 +223,42 @@
       }, timeout + 500);
       step();
     });
+  }
+
+  // Waits until target view is visible, spinner is gone, items exist, and list count stabilizes
+  async function waitForViewSettled(viewId, itemSelector, label, timeout = 30000) {
+    let lastSig = "";
+    let stableSince = 0;
+
+    return waitFor(
+      () => {
+        const el = document.getElementById(viewId.replace(/^#/, ""));
+        if (!el || !isVisible(el)) return `DIAG:${viewId} not visible`;
+        if (hasLoadingSpinner(el)) {
+          stableSince = 0;
+          return `DIAG:Spinner active in ${viewId}`;
+        }
+
+        const items = Array.from(el.querySelectorAll(itemSelector)).filter(isVisible);
+        if (items.length === 0) {
+          stableSince = 0;
+          return `DIAG:No items yet in ${viewId}`;
+        }
+
+        const sig = `${items.length}:${(items[0].innerText || "").slice(0, 25)}:${(items[items.length - 1].innerText || "").slice(0, 25)}`;
+        const now = Date.now();
+        if (sig !== lastSig) {
+          lastSig = sig;
+          stableSince = now;
+          return `DIAG:Settling items (${items.length}) in ${viewId}`;
+        }
+        if (now - stableSince < 350) {
+          return `DIAG:Confirming stability in ${viewId}`;
+        }
+        return items;
+      },
+      { timeout, interval: 200, label }
+    );
   }
 
   hud.querySelector("#pw-cp-logs").onclick = () => {
@@ -386,42 +422,65 @@
     return hits > 0 ? hits * 100 : 0;
   }
 
-  async function clickBestCandidateInView(viewId, selector, queryText, label, minScore = 100) {
-    return waitFor(
+  function findBestClickable(viewId, selector, queryText, minScore = 100) {
+    const viewEl = document.getElementById(viewId.replace(/^#/, "")) || getActiveViewEl();
+    if (!viewEl || !isVisible(viewEl)) return null;
+    const candidates = Array.from(viewEl.querySelectorAll(selector)).filter(isVisible);
+    let bestEl = null;
+    let bestScore = 0;
+
+    for (const el of candidates) {
+      const sc = scoreMatch((el.innerText || "").trim(), queryText);
+      if (sc > bestScore) {
+        bestScore = sc;
+        bestEl = el;
+      }
+    }
+
+    if (!bestEl || bestScore < minScore) return null;
+    const clickable =
+      bestEl.closest(".offering-item, .list-card, .card-custom, .content-card, button, a, [role='button']") ||
+      bestEl;
+    return { clickable, text: (bestEl.innerText || "").trim(), score: bestScore };
+  }
+
+  // Clicks best match in viewId and waits for nextViewId to open & settle (retrying click if stuck)
+  async function clickAndWaitForNextView(fromViewId, selector, queryText, nextViewId, nextSelector, label, minScore = 100) {
+    const match = await waitFor(
       () => {
-        const viewEl = document.getElementById(viewId.replace(/^#/, "")) || getActiveViewEl();
-        if (!viewEl || !isVisible(viewEl)) return `DIAG:${viewId} not visible`;
-        if (hasLoadingSpinner(viewEl)) return `DIAG:Spinner in ${viewId}`;
-
-        const candidates = Array.from(viewEl.querySelectorAll(selector)).filter(isVisible);
-        if (candidates.length === 0) return `DIAG:0 items in ${viewId}`;
-
-        let bestEl = null;
-        let bestScore = 0;
-
-        for (const el of candidates) {
-          const text = (el.innerText || "").trim();
-          const sc = scoreMatch(text, queryText);
-          if (sc > bestScore) {
-            bestScore = sc;
-            bestEl = el;
-          }
-        }
-
-        if (!bestEl || bestScore < minScore) {
-          return `DIAG:No match for "${queryText}" in ${viewId}`;
-        }
-
-        const clickable =
-          bestEl.closest(".offering-item, .list-card, .card-custom, .content-card, button, a, [role='button']") ||
-          bestEl;
-        clickable.scrollIntoView({ behavior: "instant", block: "center" });
-        clickable.click();
-        log(`Clicked ${label} (score ${bestScore})`);
-        return bestEl;
+        const viewEl = document.getElementById(fromViewId.replace(/^#/, ""));
+        if (!viewEl || !isVisible(viewEl)) return `DIAG:${fromViewId} not visible`;
+        if (hasLoadingSpinner(viewEl)) return `DIAG:Spinner in ${fromViewId}`;
+        const found = findBestClickable(fromViewId, selector, queryText, minScore);
+        return found || `DIAG:No match for "${queryText}" in ${fromViewId}`;
       },
-      { timeout: 25000, interval: 220, label }
+      { timeout: 25000, interval: 200, label: `Find ${label}` }
     );
+
+    const doClick = () => {
+      match.clickable.scrollIntoView({ behavior: "instant", block: "center" });
+      match.clickable.click();
+      log(`Clicked ${label} (score ${match.score})`);
+    };
+
+    doClick();
+
+    // Wait up to 7s for nextViewId to become visible; re-click once if still on fromViewId
+    const moved = await waitFor(
+      () => {
+        const nextEl = document.getElementById(nextViewId.replace(/^#/, ""));
+        if (nextEl && isVisible(nextEl)) return true;
+        return `DIAG:Waiting for ${nextViewId}`;
+      },
+      { timeout: 7000, interval: 200, label: `Open ${nextViewId}`, progressEveryMs: 3000 }
+    ).catch(() => false);
+
+    if (!moved) {
+      log(`Re-clicking ${label} because ${nextViewId} did not open yet...`);
+      doClick();
+    }
+
+    return waitForViewSettled(nextViewId, nextSelector, `Settle ${nextViewId}`, 30000);
   }
 
   function findLectureDownloadTarget(lectureTitle) {
@@ -506,55 +565,46 @@
       return;
     }
 
-    log("Step 1: Clicking All Classes...");
-    const allClassesEl = findAllClassesEl();
-    if (allClassesEl) {
-      allClassesEl.scrollIntoView({ behavior: "instant", block: "center" });
-      allClassesEl.click();
-    } else if (typeof window.openAllClasses === "function") {
-      window.openAllClasses();
-    } else {
-      await clickBestCandidateInView("#study-view", ".offering-item, button, a, div, span", "all classes", "All Classes", 500);
-    }
-
-    await waitFor(
-      () => {
-        const v = document.getElementById("all-classes-view");
-        if (!v || !isVisible(v)) return "DIAG:Waiting for #all-classes-view";
-        if (hasLoadingSpinner(v)) return "DIAG:Loading subjects";
-        const subs = Array.from(v.querySelectorAll(".list-card, #subjects-grid > div")).filter(isVisible);
-        return subs.length > 0 || "DIAG:Subjects list empty";
-      },
-      { timeout: 25000, interval: 200, label: "Subjects list" }
+    // Step 1: Open All Classes & wait for settled subjects list
+    log("Step 1: Opening All Classes...");
+    await clickAndWaitForNextView(
+      "#study-view",
+      ".offering-item, button, a, div, span",
+      "all classes",
+      "#all-classes-view",
+      ".list-card, #subjects-grid > div",
+      "All Classes",
+      500
     );
 
+    // Step 2: Select Subject & wait for settled chapters list
     log(`Step 2: Selecting subject "${item.subject}"...`);
-    await clickBestCandidateInView("#all-classes-view", ".list-card, #subjects-grid > div", item.subject, `Subject "${item.subject}"`, 100);
-    await waitFor(
-      () => {
-        const v = document.getElementById("chapters-view");
-        if (!v || !isVisible(v)) return "DIAG:Waiting for #chapters-view";
-        if (hasLoadingSpinner(v)) return "DIAG:Loading chapters";
-        const chs = Array.from(v.querySelectorAll("#chapters-list .list-card, #chapters-list > div")).filter(isVisible);
-        return chs.length > 0 || "DIAG:Chapters list empty";
-      },
-      { timeout: 25000, interval: 200, label: "Chapters list" }
+    await clickAndWaitForNextView(
+      "#all-classes-view",
+      ".list-card, #subjects-grid > div",
+      item.subject,
+      "#chapters-view",
+      "#chapters-list .list-card, #chapters-list > div",
+      `Subject "${item.subject}"`,
+      100
     );
 
+    // Step 3: Select Chapter & wait for settled lectures list
     const chapQuery = keywords(item.title).join(" ") || norm(item.title);
     log(`Step 3: Selecting chapter for "${chapQuery}"...`);
-    await clickBestCandidateInView("#chapters-view", "#chapters-list .list-card, #chapters-list > div", chapQuery, `Chapter for "${item.title}"`, 100);
-    await waitFor(
-      () => {
-        const v = document.getElementById("content-view");
-        if (!v || !isVisible(v)) return "DIAG:Waiting for #content-view";
-        if (hasLoadingSpinner(v)) return "DIAG:Loading lectures";
-        const cards = Array.from(v.querySelectorAll(".content-card, .list-group-custom > div")).filter(isVisible);
-        return cards.length > 0 || "DIAG:Content cards empty";
-      },
-      { timeout: 25000, interval: 200, label: "Chapter contents" }
+    await clickAndWaitForNextView(
+      "#chapters-view",
+      "#chapters-list .list-card, #chapters-list > div",
+      chapQuery,
+      "#content-view",
+      ".content-card, .list-group-custom > div",
+      `Chapter for "${item.title}"`,
+      100
     );
 
+    await waitForViewSettled("#content-view", ".content-card, .list-group-custom > div", "Content list", 30000);
+
+    // Step 4: Click download button on matching lecture
     log(`Step 4: Clicking download on "${item.title}"...`);
     const target = await waitFor(
       () => {
