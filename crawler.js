@@ -636,13 +636,25 @@
 
     log("Step  1:  Opening  All  Classes   📂  .......");
     try {
-      await clickInActiveView((t) => norm(t) === "all classes", "All  Classes  Button", 12000);
+      await clickInActiveView((t) => norm(t) === "all classes", "All  Classes  Button", 15000);
+      await waitFor(
+        () => {
+          const viewEl = document.getElementById("all-classes-view") || getActiveViewEl();
+          const hasSpinner = !!viewEl?.querySelector(".fa-spinner, .spinner-border, [class*='spinner' i], [class*='loader' i]");
+          const items = Array.from(viewEl?.querySelectorAll(".list-card, #subjects-grid > div") || []).filter(
+            (el) => el.getBoundingClientRect().height > 0
+          );
+          if (hasSpinner && items.length === 0) return "DIAG:Spinner  Loading  Subjects";
+          return items.length > 0 || getActiveViewId() === "#all-classes-view";
+        },
+        { timeout: 20000, interval: 200, label: "Subjects  List  After  Spinner" }
+      );
     } catch (err) {
       log(`Step  1  Error:  ${err.message}   ⚠️  .......`);
     }
-    await new Promise((r) => setTimeout(r, 500));
     log(`After  All  Classes  Click:  View=${getActiveViewId()}  Hash=${window.location.hash}   ℹ️  .......`);
 
+    
     const subNorm = norm(item.subject);
     log(`Step  2:  Selecting  Subject  "${item.subject}"  (Norm="${subNorm}")   📘  .......`);
     try {
