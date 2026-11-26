@@ -160,18 +160,17 @@
     return window.location.hash || "";
   }
 
-  function fireRealClick(el) {
+  function isViewOpen(viewId) {
+    const idClean = viewId.replace(/^#/, "");
+    const el = document.getElementById(idClean);
+    if (el && (el.classList.contains("active-view") || isVisible(el))) return true;
+    return window.location.hash === `#${idClean}`;
+  }
+
+  function cleanClick(el) {
     if (!el) return;
-    el.scrollIntoView({ behavior: "instant", block: "center" });
-    const rect = el.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const opts = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy };
-    try { el.dispatchEvent(new PointerEvent("pointerdown", opts)); } catch (_) {}
-    try { el.dispatchEvent(new MouseEvent("mousedown", opts)); } catch (_) {}
-    try { el.click(); } catch (_) {}
-    try { el.dispatchEvent(new MouseEvent("mouseup", opts)); } catch (_) {}
-    try { el.dispatchEvent(new PointerEvent("pointerup", opts)); } catch (_) {}
+    try { el.scrollIntoView({ behavior: "instant", block: "center" }); } catch (_) {}
+    el.click();
   }
 
   function findAllClassesEl() {
@@ -239,7 +238,6 @@
     });
   }
 
-  // Ensures target view is visible, spinner is completely gone, items exist, and list is settled
   async function waitForViewSettled(viewId, itemSelector, label, timeout = 25000) {
     let lastSig = "";
     let stableSince = 0;
@@ -247,10 +245,10 @@
     return waitFor(
       () => {
         const el = document.getElementById(viewId.replace(/^#/, ""));
-        if (!el || !isVisible(el)) return `DIAG:${viewId} not visible (active=${getActiveViewId()})`;
+        if (!el || !isViewOpen(viewId)) return `DIAG:${viewId} not active (now ${getActiveViewId()})`;
         if (hasLoadingSpinner(el)) {
           stableSince = 0;
-          return `DIAG:Spinner active in ${viewId}`;
+          return `DIAG:Spinner in ${viewId}`;
         }
 
         const items = Array.from(el.querySelectorAll(itemSelector)).filter(
@@ -403,7 +401,7 @@
 
       if (backBtn && isVisible(backBtn)) {
         log(`Back (${attempt + 1}) from ${before}`);
-        fireRealClick(backBtn);
+        cleanClick(backBtn);
       } else if (typeof window.nav === "function") {
         log(`nav("study-view") from ${before}`);
         window.nav("study-view");
@@ -440,8 +438,10 @@
 
   function findBestClickable(viewId, selector, queryText, minScore = 100) {
     const viewEl = document.getElementById(viewId.replace(/^#/, "")) || getActiveViewEl();
-    if (!viewEl || !isVisible(viewEl)) return null;
-    const candidates = Array.from(viewEl.querySelectorAll(selector)).filter((el) => isVisible(el) && norm(el.innerText).length > 0);
+    if (!viewEl || !isViewOpen(viewId)) return null;
+    const candidates = Array.from(viewEl.querySelectorAll(selector)).filter(
+      (el) => isVisible(el) && norm(el.innerText).length > 0
+    );
     let bestEl = null;
     let bestScore = 0;
 
@@ -460,39 +460,30 @@
     return { clickable, text: (bestEl.innerText || "").trim(), score: bestScore };
   }
 
-  // Waits for fromViewId to settle first, clicks match, and waits for nextViewId to open & settle
   async function clickAndWaitForNextView(fromViewId, fromSelector, queryText, nextViewId, nextSelector, label, minScore = 100) {
     await waitForViewSettled(fromViewId, fromSelector, `Load ${fromViewId}`, 25000);
 
     const getMatch = () => findBestClickable(fromViewId, fromSelector, queryText, minScore);
     const firstMatch = await waitFor(
       () => getMatch() || `DIAG:No match for "${queryText}" in ${fromViewId}`,
-      { timeout: 15000, interval: 200, label: `Match ${label}` }
+      { timeout: 15000, interval: 220, label: `Match ${label}` }
     );
 
-    fireRealClick(firstMatch.clickable);
-    log(`Clicked ${label}: "${firstMatch.text.slice(0, 35)}" (score ${firstMatch.score})`);
+    cleanClick(firstMatch.clickable);
+    log(`Clicked ${label}: "${firstMatch.text.replace(/\s+/g, " ").slice(0, 35)}" (score ${firstMatch.score})`);
 
     const movedFirst = await waitFor(
-      () => {
-        const nextEl = document.getElementById(nextViewId.replace(/^#/, ""));
-        if (nextEl && isVisible(nextEl)) return true;
-        return `DIAG:Waiting for ${nextViewId} (still ${getActiveViewId()})`;
-      },
-      { timeout: 7000, interval: 200, label: `Open ${nextViewId}`, progressEveryMs: 3000 }
+      () => (isViewOpen(nextViewId) ? true : `DIAG:Waiting for ${nextViewId} (now ${getActiveViewId()})`),
+      { timeout: 6000, interval: 220, label: `Open ${nextViewId}`, progressEveryMs: 3000 }
     ).catch(() => false);
 
     if (!movedFirst) {
       const freshMatch = getMatch() || firstMatch;
       log(`Re-clicking ${label} (view still ${getActiveViewId()})...`);
-      fireRealClick(freshMatch.clickable);
+      cleanClick(freshMatch.clickable);
       await waitFor(
-        () => {
-          const nextEl = document.getElementById(nextViewId.replace(/^#/, ""));
-          if (nextEl && isVisible(nextEl)) return true;
-          return `DIAG:Still waiting for ${nextViewId} (still ${getActiveViewId()})`;
-        },
-        { timeout: 9000, interval: 200, label: `Retry ${nextViewId}`, progressEveryMs: 3500 }
+        () => (isViewOpen(nextViewId) ? true : `DIAG:Still ${getActiveViewId()}`),
+        { timeout: 6000, interval: 220, label: `Retry ${nextViewId}`, progressEveryMs: 3000 }
       );
     }
 
@@ -501,7 +492,7 @@
 
   function findLectureDownloadTarget(lectureTitle) {
     const viewEl = document.getElementById("content-view") || getActiveViewEl();
-    if (!viewEl || !isVisible(viewEl)) return { error: "#content-view not visible" };
+    if (!viewEl || !isViewOpen("#content-view")) return { error: "#content-view not active" };
     if (hasLoadingSpinner(viewEl)) return { error: "Loading lectures" };
 
     const cards = Array.from(viewEl.querySelectorAll(".content-card, .list-group-custom > div")).filter(isVisible);
@@ -624,10 +615,10 @@
         if (res.dlEl) return res;
         return `DIAG:${res.error || "No match"}`;
       },
-      { timeout: 20000, interval: 200, label: `Download button for "${item.title}"` }
+      { timeout: 20000, interval: 220, label: `Download button for "${item.title}"` }
     );
 
-    fireRealClick(target.dlEl);
+    cleanClick(target.dlEl);
 
     const rawDlUrl = await waitFor(
       () => latestDownloaderUrl || target.href || "",
