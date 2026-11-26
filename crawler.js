@@ -596,26 +596,43 @@
     return { error: "Download button missing" };
   }
 
+
   function findSignedM3u8FromPerformance() {
     try {
       const entries = performance.getEntriesByType("resource") || [];
-      for (let i = entries.length - 1; i >= 0; i--) {
-        const name = entries[i]?.name || "";
+      const m3u8Entries = entries
+        .map((e) => e?.name || "")
+        .filter((name) => name.includes(".m3u8") || name.includes("master.mpd"));
+
+      log(`[NET-PERF] Found ${m3u8Entries.length} manifest entries in performance resources.`);
+      for (let i = m3u8Entries.length - 1; i >= 0; i--) {
+        const name = m3u8Entries[i];
+        log(`[NET-PERF-ENTRY] ${name}`);
         if (name.includes(".m3u8") && (name.includes("Signature=") || name.includes("proxy.studyparcham.in"))) {
-          return name.replace(/\/hls\/[^/]+\/main\.m3u8/i, "/master.m3u8");
+          const normalized = name.replace(/\/hls\/[^/]+\/main\.m3u8/i, "/master.m3u8");
+          log(`[NET-PERF-PICKED] ${normalized}`);
+          return normalized;
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      log(`[NET-PERF-ERR] ${err.message}`);
+    }
     return "";
   }
 
   function cleanStreamUrl(rawUrl) {
+    log(`[CLEAN-IN-RAW] ${rawUrl || "(empty)"}`);
     if (!rawUrl) return "";
     try {
       const parsed = new URL(rawUrl, window.location.origin);
       const paramUrl = parsed.searchParams.get("url");
       const decodedTarget = paramUrl ? decodeURIComponent(paramUrl) : rawUrl;
+      log(`[CLEAN-PARAM-URL] ${paramUrl || "(none)"}`);
+      log(`[CLEAN-DECODED] ${decodedTarget}`);
+
       const streamUrl = new URL(decodedTarget, window.location.origin);
+      const beforePath = streamUrl.pathname;
+      const beforeSearch = streamUrl.search || "(no-query)";
 
       streamUrl.pathname = streamUrl.pathname.replace(
         /(\/hls\/[^/]+\/main\.m3u8|\/master\.mpd)$/i,
@@ -631,16 +648,27 @@
         streamUrl.pathname = `/d1d34p8vz63oiq.cloudfront.net${streamUrl.pathname}`;
       }
 
-      const built = streamUrl.toString();
+      log(`[CLEAN-PARTS] path: "${beforePath}" -> "${streamUrl.pathname}" | query: "${beforeSearch}" -> "${streamUrl.search || "(no-query)"}"`);
+
+      let built = streamUrl.toString();
       if (!streamUrl.search) {
         const perfSigned = findSignedM3u8FromPerformance();
-        if (perfSigned) return perfSigned;
+        if (perfSigned) {
+          built = perfSigned;
+        } else {
+          log(`[CLEAN-NO-SIG] No ?Signature= found in decoded URL or current tab network entries.`);
+        }
       }
+
+      log(`[CLEAN-FINAL] ${built}`);
       return built;
-    } catch (_) {
-      return String(rawUrl).replace(/(\/hls\/[^/?]+\/main\.m3u8|\/master\.mpd)/i, "/master.m3u8");
+    } catch (err) {
+      const fallback = String(rawUrl).replace(/(\/hls\/[^/?]+\/main\.m3u8|\/master\.mpd)/i, "/master.m3u8");
+      log(`[CLEAN-CATCH] err=${err.message} -> fallback="${fallback}"`);
+      return fallback;
     }
   }
+
 
   const origWindowOpen = window.open.bind(window);
   window.open = function (url, target, features) {
@@ -737,6 +765,7 @@
     ).catch(() => "");
 
     const cleaned = cleanStreamUrl(rawDlUrl);
+    log(`[URL-COMPARE] raw="${rawDlUrl}" | cleaned="${cleaned}"`);
     if (cleaned) {
       const hasSig = cleaned.includes("Signature=");
       setVaultStatus("CAPTURED", item.title, cleaned, "Link ready", "/downloader", hasSig ? "Signed query intact" : "Base URL (no sig in param)");
