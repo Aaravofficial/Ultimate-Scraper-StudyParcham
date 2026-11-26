@@ -160,6 +160,20 @@
     return window.location.hash || "";
   }
 
+  function fireRealClick(el) {
+    if (!el) return;
+    el.scrollIntoView({ behavior: "instant", block: "center" });
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const opts = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy };
+    try { el.dispatchEvent(new PointerEvent("pointerdown", opts)); } catch (_) {}
+    try { el.dispatchEvent(new MouseEvent("mousedown", opts)); } catch (_) {}
+    try { el.click(); } catch (_) {}
+    try { el.dispatchEvent(new MouseEvent("mouseup", opts)); } catch (_) {}
+    try { el.dispatchEvent(new PointerEvent("pointerup", opts)); } catch (_) {}
+  }
+
   function findAllClassesEl() {
     const studyEl = document.getElementById("study-view");
     if (!studyEl) return null;
@@ -178,7 +192,7 @@
     return getActiveViewId() === "#study-view" && !!findAllClassesEl();
   }
 
-  function waitFor(predicate, { timeout = 30000, interval = 200, label = "Condition", progressEveryMs = 4000 } = {}) {
+  function waitFor(predicate, { timeout = 20000, interval = 200, label = "Condition", progressEveryMs = 3500 } = {}) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
       let lastProgress = start;
@@ -225,24 +239,23 @@
     });
   }
 
-  // Waits until target view is visible, spinner is gone, items exist, and list count stabilizes
-  async function waitForViewSettled(viewId, itemSelector, label, timeout = 30000) {
+  async function waitForViewSettled(viewId, itemSelector, label, timeout = 20000) {
     let lastSig = "";
     let stableSince = 0;
 
     return waitFor(
       () => {
         const el = document.getElementById(viewId.replace(/^#/, ""));
-        if (!el || !isVisible(el)) return `DIAG:${viewId} not visible`;
+        if (!el || !isVisible(el)) return `DIAG:${viewId} not visible (active=${getActiveViewId()})`;
         if (hasLoadingSpinner(el)) {
           stableSince = 0;
-          return `DIAG:Spinner active in ${viewId}`;
+          return `DIAG:Spinner in ${viewId}`;
         }
 
         const items = Array.from(el.querySelectorAll(itemSelector)).filter(isVisible);
         if (items.length === 0) {
           stableSince = 0;
-          return `DIAG:No items yet in ${viewId}`;
+          return `DIAG:No items in ${viewId}`;
         }
 
         const sig = `${items.length}:${(items[0].innerText || "").slice(0, 25)}:${(items[items.length - 1].innerText || "").slice(0, 25)}`;
@@ -250,10 +263,10 @@
         if (sig !== lastSig) {
           lastSig = sig;
           stableSince = now;
-          return `DIAG:Settling items (${items.length}) in ${viewId}`;
+          return `DIAG:Settling (${items.length}) in ${viewId}`;
         }
-        if (now - stableSince < 350) {
-          return `DIAG:Confirming stability in ${viewId}`;
+        if (now - stableSince < 300) {
+          return `DIAG:Stabilizing ${viewId}`;
         }
         return items;
       },
@@ -387,7 +400,7 @@
 
       if (backBtn && isVisible(backBtn)) {
         log(`Back (${attempt + 1}) from ${before}`);
-        backBtn.click();
+        fireRealClick(backBtn);
       } else if (typeof window.nav === "function") {
         log(`nav("study-view") from ${before}`);
         window.nav("study-view");
@@ -444,7 +457,6 @@
     return { clickable, text: (bestEl.innerText || "").trim(), score: bestScore };
   }
 
-  // Clicks best match in viewId and waits for nextViewId to open & settle (retrying click if stuck)
   async function clickAndWaitForNextView(fromViewId, selector, queryText, nextViewId, nextSelector, label, minScore = 100) {
     const match = await waitFor(
       () => {
@@ -454,33 +466,35 @@
         const found = findBestClickable(fromViewId, selector, queryText, minScore);
         return found || `DIAG:No match for "${queryText}" in ${fromViewId}`;
       },
-      { timeout: 25000, interval: 200, label: `Find ${label}` }
+      { timeout: 20000, interval: 200, label: `Find ${label}` }
     );
 
-    const doClick = () => {
-      match.clickable.scrollIntoView({ behavior: "instant", block: "center" });
-      match.clickable.click();
-      log(`Clicked ${label} (score ${match.score})`);
-    };
+    fireRealClick(match.clickable);
+    log(`Clicked ${label} (score ${match.score})`);
 
-    doClick();
-
-    // Wait up to 7s for nextViewId to become visible; re-click once if still on fromViewId
-    const moved = await waitFor(
+    const movedFirst = await waitFor(
       () => {
         const nextEl = document.getElementById(nextViewId.replace(/^#/, ""));
         if (nextEl && isVisible(nextEl)) return true;
-        return `DIAG:Waiting for ${nextViewId}`;
+        return `DIAG:Waiting for ${nextViewId} (now ${getActiveViewId()})`;
       },
       { timeout: 7000, interval: 200, label: `Open ${nextViewId}`, progressEveryMs: 3000 }
     ).catch(() => false);
 
-    if (!moved) {
-      log(`Re-clicking ${label} because ${nextViewId} did not open yet...`);
-      doClick();
+    if (!movedFirst) {
+      log(`Retrying click on ${label}...`);
+      fireRealClick(match.clickable);
+      await waitFor(
+        () => {
+          const nextEl = document.getElementById(nextViewId.replace(/^#/, ""));
+          if (nextEl && isVisible(nextEl)) return true;
+          return `DIAG:Still waiting for ${nextViewId} (now ${getActiveViewId()})`;
+        },
+        { timeout: 8000, interval: 200, label: `Retry ${nextViewId}`, progressEveryMs: 3500 }
+      );
     }
 
-    return waitForViewSettled(nextViewId, nextSelector, `Settle ${nextViewId}`, 30000);
+    return waitForViewSettled(nextViewId, nextSelector, `Settle ${nextViewId}`, 20000);
   }
 
   function findLectureDownloadTarget(lectureTitle) {
@@ -565,7 +579,6 @@
       return;
     }
 
-    // Step 1: Open All Classes & wait for settled subjects list
     log("Step 1: Opening All Classes...");
     await clickAndWaitForNextView(
       "#study-view",
@@ -577,7 +590,6 @@
       500
     );
 
-    // Step 2: Select Subject & wait for settled chapters list
     log(`Step 2: Selecting subject "${item.subject}"...`);
     await clickAndWaitForNextView(
       "#all-classes-view",
@@ -589,7 +601,6 @@
       100
     );
 
-    // Step 3: Select Chapter & wait for settled lectures list
     const chapQuery = keywords(item.title).join(" ") || norm(item.title);
     log(`Step 3: Selecting chapter for "${chapQuery}"...`);
     await clickAndWaitForNextView(
@@ -602,9 +613,8 @@
       100
     );
 
-    await waitForViewSettled("#content-view", ".content-card, .list-group-custom > div", "Content list", 30000);
+    await waitForViewSettled("#content-view", ".content-card, .list-group-custom > div", "Content list", 20000);
 
-    // Step 4: Click download button on matching lecture
     log(`Step 4: Clicking download on "${item.title}"...`);
     const target = await waitFor(
       () => {
@@ -615,8 +625,7 @@
       { timeout: 20000, interval: 200, label: `Download button for "${item.title}"` }
     );
 
-    target.card.scrollIntoView({ behavior: "smooth", block: "center" });
-    target.dlEl.click();
+    fireRealClick(target.dlEl);
 
     const rawDlUrl = await waitFor(
       () => latestDownloaderUrl || target.href || "",
