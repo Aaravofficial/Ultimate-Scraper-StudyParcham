@@ -641,18 +641,15 @@
 
 
     const subNorm = norm(item.subject);
-    log(`Step  2:  Selecting  Subject  "${item.subject}"   📘  .......`);
+    log(`Step  2:  Selecting  Subject  "${item.subject}"  (Norm="${subNorm}")   📘  .......`);
     await clickInActiveView(
       (t) => norm(t).includes(subNorm) || subNorm.includes(norm(t)),
       `Subject  "${item.subject}"`,
       15000
     );
-    await waitFor(
-      () =>
-        getActiveViewId() === "#chapters-view" ||
-        "DIAG:CurrentView=" + getActiveViewId(),
-      { timeout: 12000, interval: 120, label: "#chapters-view" }
-    );
+    await new Promise((r) => setTimeout(r, 400));
+    log(`After  Subject  Click   :   View=${getActiveViewId()}  Hash=${window.location.hash}   ℹ️  .......`);
+
 
     const words = norm(item.title)
       .split(" ")
