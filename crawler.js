@@ -635,34 +635,41 @@
     }
 
     log("Step  1:  Opening  All  Classes   📂  .......");
-    await clickInActiveView((t) => norm(t) === "all classes", "All  Classes  Button", 15000);
-    await new Promise((r) => setTimeout(r, 400));
+    try {
+      await clickInActiveView((t) => norm(t) === "all classes", "All  Classes  Button", 12000);
+    } catch (err) {
+      log(`Step  1  Error:  ${err.message}   ⚠️  .......`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
     log(`After  All  Classes  Click:  View=${getActiveViewId()}  Hash=${window.location.hash}   ℹ️  .......`);
-
 
     const subNorm = norm(item.subject);
     log(`Step  2:  Selecting  Subject  "${item.subject}"  (Norm="${subNorm}")   📘  .......`);
-    await clickInActiveView(
-      (t) => norm(t).includes(subNorm) || subNorm.includes(norm(t)),
-      `Subject  "${item.subject}"`,
-      15000
-    );
-    await new Promise((r) => setTimeout(r, 400));
-    log(`After  Subject  Click   :   View=${getActiveViewId()}  Hash=${window.location.hash}   ℹ️  .......`);
-
+    try {
+      await clickInActiveView(
+        (t) => norm(t).includes(subNorm) || subNorm.includes(norm(t)),
+        `Subject  "${item.subject}"`,
+        12000
+      );
+    } catch (err) {
+      log(`Step  2  Error:  ${err.message}   ⚠️  .......`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+    log(`After  Subject  Click:  View=${getActiveViewId()}  Hash=${window.location.hash}   ℹ️  .......`);
 
     const words = norm(item.title)
       .split(" ")
       .filter((w) => w.length > 3);
     const chapKey = words[0] || norm(item.title).split(" ")[0];
     log(`Step  3:  Selecting  Chapter  Matching  "${chapKey}"   📑  .......`);
-    await clickInActiveView((t) => norm(t).includes(chapKey), `Chapter  "${chapKey}"`, 15000);
-    await waitFor(
-      () =>
-        getActiveViewId() === "#content-view" ||
-        "DIAG:CurrentView=" + getActiveViewId(),
-      { timeout: 12000, interval: 120, label: "#content-view" }
-    );
+    try {
+      await clickInActiveView((t) => norm(t).includes(chapKey), `Chapter  "${chapKey}"`, 12000);
+    } catch (err) {
+      log(`Step  3  Error:  ${err.message}   ⚠️  .......`);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+    log(`After  Chapter  Click:  View=${getActiveViewId()}  Hash=${window.location.hash}   ℹ️  .......`);
+
 
     log(`Step  4:  Finding  Lecture  "${item.title}"  And  Download  Button   🔎  .......`);
     const match = await waitFor(
