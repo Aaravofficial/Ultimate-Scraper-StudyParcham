@@ -167,10 +167,23 @@
     return window.location.hash === `#${idClean}`;
   }
 
-  function cleanClick(el) {
-    if (!el) return;
-    try { el.scrollIntoView({ behavior: "instant", block: "center" }); } catch (_) {}
-    el.click();
+  function clickCardThoroughly(match) {
+    if (!match) return;
+    const targets = [];
+    const pushUnique = (el) => {
+      if (el && !targets.includes(el)) targets.push(el);
+    };
+
+    pushUnique(match.clickable);
+    pushUnique(match.rawEl);
+    if (match.clickable && match.clickable.querySelectorAll) {
+      match.clickable.querySelectorAll("[onclick], button, a, [role='button']").forEach(pushUnique);
+    }
+
+    for (const t of targets) {
+      try { t.scrollIntoView({ behavior: "instant", block: "center" }); } catch (_) {}
+      try { t.click(); } catch (_) {}
+    }
   }
 
   function findAllClassesEl() {
@@ -401,7 +414,7 @@
 
       if (backBtn && isVisible(backBtn)) {
         log(`Back (${attempt + 1}) from ${before}`);
-        cleanClick(backBtn);
+        backBtn.click();
       } else if (typeof window.nav === "function") {
         log(`nav("study-view") from ${before}`);
         window.nav("study-view");
@@ -457,7 +470,7 @@
     const clickable =
       bestEl.closest(".offering-item, .list-card, .card-custom, .content-card, button, a, [role='button']") ||
       bestEl;
-    return { clickable, text: (bestEl.innerText || "").trim(), score: bestScore };
+    return { rawEl: bestEl, clickable, text: (bestEl.innerText || "").trim(), score: bestScore };
   }
 
   async function clickAndWaitForNextView(fromViewId, fromSelector, queryText, nextViewId, nextSelector, label, minScore = 100) {
@@ -469,7 +482,7 @@
       { timeout: 15000, interval: 220, label: `Match ${label}` }
     );
 
-    cleanClick(firstMatch.clickable);
+    clickCardThoroughly(firstMatch);
     log(`Clicked ${label}: "${firstMatch.text.replace(/\s+/g, " ").slice(0, 35)}" (score ${firstMatch.score})`);
 
     const movedFirst = await waitFor(
@@ -479,8 +492,9 @@
 
     if (!movedFirst) {
       const freshMatch = getMatch() || firstMatch;
+      log(`Card HTML: ${freshMatch.clickable.outerHTML.replace(/\s+/g, " ").slice(0, 200)}`);
       log(`Re-clicking ${label} (view still ${getActiveViewId()})...`);
-      cleanClick(freshMatch.clickable);
+      clickCardThoroughly(freshMatch);
       await waitFor(
         () => (isViewOpen(nextViewId) ? true : `DIAG:Still ${getActiveViewId()}`),
         { timeout: 6000, interval: 220, label: `Retry ${nextViewId}`, progressEveryMs: 3000 }
@@ -618,7 +632,8 @@
       { timeout: 20000, interval: 220, label: `Download button for "${item.title}"` }
     );
 
-    cleanClick(target.dlEl);
+    try { target.dlEl.scrollIntoView({ behavior: "instant", block: "center" }); } catch (_) {}
+    target.dlEl.click();
 
     const rawDlUrl = await waitFor(
       () => latestDownloaderUrl || target.href || "",
