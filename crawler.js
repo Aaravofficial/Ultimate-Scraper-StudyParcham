@@ -58,13 +58,13 @@
   const vaultBox = document.createElement("div");
   vaultBox.id = "pw-vault-mini";
   vaultBox.style.cssText =
-    "position:fixed;bottom:14px;right:14px;background:#0b1120;color:#f8fafc;padding:12px;z-index:2147483646;border:2px solid #38bdf8;border-radius:10px;font-family:monospace;width:285px;max-width:calc(100vw - 28px);font-size:11px;box-shadow:0 0 18px rgba(56,189,248,0.25);";
+    "position:fixed;bottom:14px;right:14px;background:#0b1120;color:#f8fafc;padding:12px;z-index:2147483646;border:2px solid #38bdf8;border-radius:10px;font-family:monospace;width:285px;width:min(310px, calc(100vw - 28px));transition:width 0.2s ease;font-size:11px;box-shadow:0 0 18px rgba(56,189,248,0.25);";
   vaultBox.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
       <b style="color:#38bdf8;">📺 Mini Monitor</b>
       <span id="pw-vault-state" style="color:#facc15;font-weight:bold;">IDLE</span>
     </div>
-    <div id="pw-vault-screen" style="background:#020617;border:1px solid #1e293b;border-radius:6px;padding:6px;margin-bottom:6px;color:#38bdf8;font-size:10.5px;line-height:1.35;max-height:68px;overflow-y:auto;">
+    <div id="pw-vault-screen" style="background:#020617;border:1px solid #1e293b;border-radius:6px;padding:6px;margin-bottom:6px;color:#38bdf8;font-size:10.5px;line-height:1.35;max-height:none;overflow:visible;">
       <div>View: <span id="pw-mini-view">#weekly-schedule-view</span></div>
       <div>Step: <span id="pw-mini-step" style="color:#e2e8f0;">Ready</span></div>
       <div>Detail: <span id="pw-mini-detail" style="color:#94a3b8;">Waiting</span></div>
@@ -732,33 +732,76 @@
     } catch (_) {}
   }
 
-  function removeMiniDownloaderFrame() {
-    const existing = document.getElementById("pw-mini-dl-frame");
-    if (existing) existing.remove();
+
+  let miniResizeTimer = null;
+
+  function setMiniVaultExpanded(expanded) {
+    if (!vaultBox) return;
+    if (expanded) {
+      vaultBox.style.width = "min(390px, calc(100vw - 28px))";
+    } else {
+      vaultBox.style.width = "min(310px, calc(100vw - 28px))";
+    }
   }
 
-  // Opens downloader inside a docked mini-screen iframe on the same page/tab instead of a separate tab
+  function fitMiniFrameToContent(frame) {
+    if (!frame) return;
+    try {
+      const doc = frame.contentDocument;
+      if (!doc) return;
+      const h = Math.max(
+        doc.documentElement?.scrollHeight || 0,
+        doc.body?.scrollHeight || 0,
+        240
+      );
+      frame.style.height = `${Math.min(h + 8, Math.round(window.innerHeight * 0.65))}px`;
+    } catch (_) {}
+  }
+
+  function removeMiniDownloaderFrame() {
+    if (miniResizeTimer) {
+      clearInterval(miniResizeTimer);
+      miniResizeTimer = null;
+    }
+    const existing = document.getElementById("pw-mini-dl-frame");
+    if (existing) existing.remove();
+    setMiniVaultExpanded(false);
+  }
+
+  // Opens downloader inside an auto-sized mini-screen iframe on the same page/tab
   function openDownloaderInMiniScreen(dlUrl) {
     removeMiniDownloaderFrame();
     const screenBox = vaultBox.querySelector("#pw-vault-screen");
     if (!screenBox) return;
 
+    setMiniVaultExpanded(true);
+
     const frame = document.createElement("iframe");
     frame.id = "pw-mini-dl-frame";
     frame.src = dlUrl;
+    frame.scrolling = "no";
     frame.style.cssText =
-      "width:100%;height:135px;border:1px solid #38bdf8;border-radius:6px;background:#020617;margin-top:6px;display:block;";
+      "width:100%;height:320px;border:1px solid #38bdf8;border-radius:8px;background:#0f172a;margin-top:6px;display:block;overflow:hidden;";
     frame.onload = () => {
       try {
         if (frame.contentWindow) {
           attachDownloaderSnifferToWindow(frame.contentWindow);
         }
+        fitMiniFrameToContent(frame);
+        miniResizeTimer = setInterval(() => fitMiniFrameToContent(frame), 400);
+        setTimeout(() => {
+          if (miniResizeTimer) {
+            clearInterval(miniResizeTimer);
+            miniResizeTimer = null;
+          }
+        }, 16000);
       } catch (err) {
         log(`[DL-FRAME-HOOK-ERR] ${err.message}`);
       }
     };
     screenBox.appendChild(frame);
   }
+
 
   const origWindowOpen = window.open.bind(window);
   window.open = function (url, target, features) {
