@@ -15,7 +15,7 @@
   ]);
 
   const norm = (s = "") =>
-    String(s)
+    String(s || "")
       .replace(/\s+/g, " ")
       .replace(/[|•–—:()\[\]{}.,!?/\\-]+/g, " ")
       .trim()
@@ -25,6 +25,8 @@
     norm(s)
       .split(" ")
       .filter((w) => w.length > 1 && !STOP_WORDS.has(w) && !/^\d+$/.test(w));
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   const hud = document.createElement("div");
   hud.id = "pw-hud-panel";
@@ -126,28 +128,79 @@
     }
   }
 
+  function isVisible(el) {
+    if (!el || !(el instanceof Element)) return false;
+    const st = window.getComputedStyle(el);
+    if (st.display === "none" || st.visibility === "hidden") return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+
+  function hasLoadingSpinner(container) {
+    const scope = container || document;
+    const nodes = scope.querySelectorAll(".fa-spinner, .spinner-border, [class*='spinner' i], [class*='loader' i]");
+    for (const n of nodes) {
+      if (isVisible(n)) return true;
+    }
+    return false;
+  }
+
+  function getActiveViewEl() {
+    const active = document.querySelector(".view-section.active-view");
+    if (active) return active;
+    for (const v of document.querySelectorAll(".view-section")) {
+      if (isVisible(v)) return v;
+    }
+    return document.body;
+  }
+
+  function getActiveViewId() {
+    const el = getActiveViewEl();
+    if (el && el.id) return `#${el.id}`;
+    return window.location.hash || "";
+  }
+
+  function findAllClassesEl() {
+    const studyEl = document.getElementById("study-view");
+    if (!studyEl) return null;
+    for (const item of studyEl.querySelectorAll(".offering-item")) {
+      if (norm(item.innerText).includes("all classes")) return item;
+    }
+    for (const el of studyEl.querySelectorAll("button, a, div, span")) {
+      if (el.children.length <= 4 && norm(el.innerText) === "all classes") {
+        return el.closest(".offering-item") || el;
+      }
+    }
+    return null;
+  }
+
+  function isOnStudyViewReady() {
+    return getActiveViewId() === "#study-view" && !!findAllClassesEl();
+  }
+
   function waitFor(predicate, { timeout = 25000, interval = 200, label = "Condition", progressEveryMs = 4000 } = {}) {
     return new Promise((resolve, reject) => {
       const start = Date.now();
       let lastProgress = start;
-      let settled = false;
+      let done = false;
       let lastDiag = "";
 
-      const finish = (fn, val) => {
-        if (settled) return;
-        settled = true;
-        clearInterval(timer);
-        fn(val);
+      const finish = (fn, v) => {
+        if (done) return;
+        done = true;
+        clearInterval(id);
+        clearTimeout(safety);
+        fn(v);
       };
 
-      const poll = () => {
-        if (settled) return;
+      const step = () => {
+        if (done) return;
         try {
-          const out = predicate();
-          if (typeof out === "string" && out.startsWith("DIAG:")) {
-            lastDiag = out.slice(5);
-          } else if (out) {
-            finish(resolve, out);
+          const res = predicate();
+          if (typeof res === "string" && res.startsWith("DIAG:")) {
+            lastDiag = res.slice(5);
+          } else if (res) {
+            finish(resolve, res);
             return;
           }
         } catch (err) {
@@ -159,53 +212,17 @@
           lastProgress = now;
           log(`Waiting [${label}] (${Math.round((now - start) / 1000)}s)${lastDiag ? `: ${lastDiag}` : ""}`);
         }
-
         if (now - start >= timeout) {
-          const extra = lastDiag ? ` (${lastDiag})` : "";
-          finish(reject, new Error(`Timeout waiting for ${label}${extra}`));
+          finish(reject, new Error(`Timeout [${label}]${lastDiag ? ` (${lastDiag})` : ""}`));
         }
       };
 
-      poll();
-      const timer = setInterval(poll, interval);
+      const id = setInterval(step, interval);
+      const safety = setTimeout(() => {
+        finish(reject, new Error(`Timeout [${label}]${lastDiag ? ` (${lastDiag})` : ""}`));
+      }, timeout + 500);
+      step();
     });
-  }
-
-  function isVisible(el) {
-    if (!el) return false;
-    const st = window.getComputedStyle(el);
-    if (st.display === "none" || st.visibility === "hidden" || parseFloat(st.opacity) === 0) return false;
-    const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0;
-  }
-
-  function hasLoadingSpinner(container) {
-    const scope = container || document;
-    return Array.from(scope.querySelectorAll(".fa-spinner, .spinner-border, [class*='spinner' i], [class*='loader' i]")).some(isVisible);
-  }
-
-  function getActiveViewEl() {
-    const active = document.querySelector(".view-section.active-view");
-    if (active && isVisible(active)) return active;
-    const visible = Array.from(document.querySelectorAll(".view-section")).find(isVisible);
-    return visible || document.body;
-  }
-
-  function getActiveViewId() {
-    const el = getActiveViewEl();
-    if (el && el.id) return `#${el.id}`;
-    return window.location.hash || "";
-  }
-
-  function hasAllClassesInStudyView() {
-    const studyEl = document.getElementById("study-view");
-    if (!studyEl || !isVisible(studyEl)) return false;
-    const items = Array.from(studyEl.querySelectorAll(".offering-item, button, a, div, span"));
-    return items.some((el) => isVisible(el) && el.children.length <= 4 && norm(el.innerText) === "all classes");
-  }
-
-  function isOnStudyViewReady() {
-    return getActiveViewId() === "#study-view" && hasAllClassesInStudyView();
   }
 
   hud.querySelector("#pw-cp-logs").onclick = () => {
@@ -216,10 +233,7 @@
   };
 
   hud.querySelector("#pw-clear-q").onclick = () => {
-    if (isCrawling) {
-      log("Cannot clear while crawling.");
-      return;
-    }
+    if (isCrawling) return log("Cannot clear while crawling.");
     queue.forEach((item) => {
       if (item.cardEl) item.cardEl.style.outline = "";
     });
@@ -278,8 +292,7 @@
       .filter(Boolean);
 
     const metaLine = lines.find((l) => l.includes("•")) || "";
-    const afterBullet = metaLine.includes("•") ? metaLine.split("•").slice(1).join("•").trim() : "";
-    const subject = afterBullet;
+    const subject = metaLine.includes("•") ? metaLine.split("•").slice(1).join("•").trim() : "";
 
     const titleLines = lines.filter(
       (l) =>
@@ -289,8 +302,7 @@
         !/^(watch|resume|notes\s*&\s*more|view\s*note)$/i.test(l)
     );
 
-    const title = titleLines[0] || "";
-    return { subject, title, metaLine };
+    return { subject, title: titleLines[0] || "", metaLine };
   }
 
   document.addEventListener(
@@ -326,49 +338,33 @@
     true
   );
 
-  async function stepBackOnce() {
-    const before = getActiveViewId();
-    const viewEl = getActiveViewEl();
-    const backBtn =
-      viewEl?.querySelector(".breadcrumb-pw .back-btn, .back-btn, button[aria-label*='back' i]") ||
-      document.querySelector(".view-section.active-view .back-btn");
-
-    if (backBtn && isVisible(backBtn)) {
-      log(`Clicking back in ${before}`);
-      backBtn.click();
-    } else if (typeof window.nav === "function") {
-      const map = {
-        "#chapters-view": "all-classes-view",
-        "#content-view": "chapters-view",
-        "#weekly-schedule-view": "study-view",
-        "#all-classes-view": "study-view"
-      };
-      log(`Calling nav("${map[before] || "study-view"}")`);
-      window.nav(map[before] || "study-view");
-    }
-
-    await waitFor(
-      () => getActiveViewId() !== before || isOnStudyViewReady() || "DIAG:View still " + getActiveViewId(),
-      { timeout: 8000, interval: 150, label: `Back from ${before}` }
-    ).catch((e) => log(e.message));
-  }
-
   async function ensureStudyViewWithAllClasses() {
     if (isOnStudyViewReady()) return true;
 
-    for (let i = 0; i < 6; i++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       if (isOnStudyViewReady()) return true;
-      await stepBackOnce();
+      const before = getActiveViewId();
+      const viewEl = getActiveViewEl();
+      const backBtn =
+        viewEl?.querySelector(".breadcrumb-pw .back-btn, .back-btn, button[aria-label*='back' i]") ||
+        document.querySelector(".view-section.active-view .back-btn");
+
+      if (backBtn && isVisible(backBtn)) {
+        log(`Back (${attempt + 1}) from ${before}`);
+        backBtn.click();
+      } else if (typeof window.nav === "function") {
+        log(`nav("study-view") from ${before}`);
+        window.nav("study-view");
+      }
+
+      await sleep(350);
+      if (isOnStudyViewReady()) return true;
     }
 
-    if (!isOnStudyViewReady() && typeof window.nav === "function") {
+    if (typeof window.nav === "function") {
       window.nav("study-view");
-      await waitFor(
-        () => isOnStudyViewReady() || "DIAG:Waiting for #study-view",
-        { timeout: 10000, interval: 200, label: "Study view with All Classes" }
-      ).catch((e) => log(e.message));
+      await sleep(400);
     }
-
     return isOnStudyViewReady();
   }
 
@@ -395,10 +391,10 @@
       () => {
         const viewEl = document.getElementById(viewId.replace(/^#/, "")) || getActiveViewEl();
         if (!viewEl || !isVisible(viewEl)) return `DIAG:${viewId} not visible`;
-        if (hasLoadingSpinner(viewEl)) return `DIAG:Spinner active in ${viewId}`;
+        if (hasLoadingSpinner(viewEl)) return `DIAG:Spinner in ${viewId}`;
 
         const candidates = Array.from(viewEl.querySelectorAll(selector)).filter(isVisible);
-        if (candidates.length === 0) return `DIAG:0 visible (${selector}) in ${viewId}`;
+        if (candidates.length === 0) return `DIAG:0 items in ${viewId}`;
 
         let bestEl = null;
         let bestScore = 0;
@@ -413,7 +409,7 @@
         }
 
         if (!bestEl || bestScore < minScore) {
-          return `DIAG:No match >=${minScore} for "${queryText}" in ${viewId}`;
+          return `DIAG:No match for "${queryText}" in ${viewId}`;
         }
 
         const clickable =
@@ -421,7 +417,7 @@
           bestEl;
         clickable.scrollIntoView({ behavior: "instant", block: "center" });
         clickable.click();
-        log(`Clicked ${label} (score ${bestScore}): ${(bestEl.innerText || "").trim().slice(0, 45)}`);
+        log(`Clicked ${label} (score ${bestScore})`);
         return bestEl;
       },
       { timeout: 25000, interval: 220, label }
@@ -448,7 +444,7 @@
     }
 
     if (!bestCard || bestScore < 100) {
-      return { error: `No card match for "${lectureTitle}"` };
+      return { error: `No match for "${lectureTitle}"` };
     }
 
     const dlLink = bestCard.querySelector("a[href*='downloader'], a[href*='videoId']");
@@ -457,7 +453,7 @@
     const dlBtn = bestCard.querySelector(".btn-download, button[class*='download' i], a[class*='download' i]");
     if (dlBtn) return { card: bestCard, dlEl: dlBtn, href: dlBtn.href || "" };
 
-    return { error: "Download button missing on card" };
+    return { error: "Download button missing" };
   }
 
   function cleanStreamUrl(rawUrl) {
@@ -500,18 +496,27 @@
     lastCapturedTitle = item.title;
     lastCapturedSubject = item.subject;
     latestDownloaderUrl = "";
-    setVaultStatus("RUNNING", item.title, "Starting step flow...");
+    setVaultStatus("RUNNING", item.title, "Checking Study View...");
 
     log(`[${index + 1}/${total}] ${item.title} (${item.subject})`);
 
     const ready = await ensureStudyViewWithAllClasses();
     if (!ready) {
-      log(`Skip [${index + 1}/${total}]: not on Study View.`);
+      log(`Skip [${index + 1}/${total}]: All Classes not found on Study View.`);
       return;
     }
 
-    log("Step 1: Opening All Classes...");
-    await clickBestCandidateInView("#study-view", ".offering-item, button, a, div, span", "all classes", "All Classes", 500);
+    log("Step 1: Clicking All Classes...");
+    const allClassesEl = findAllClassesEl();
+    if (allClassesEl) {
+      allClassesEl.scrollIntoView({ behavior: "instant", block: "center" });
+      allClassesEl.click();
+    } else if (typeof window.openAllClasses === "function") {
+      window.openAllClasses();
+    } else {
+      await clickBestCandidateInView("#study-view", ".offering-item, button, a, div, span", "all classes", "All Classes", 500);
+    }
+
     await waitFor(
       () => {
         const v = document.getElementById("all-classes-view");
@@ -537,7 +542,7 @@
     );
 
     const chapQuery = keywords(item.title).join(" ") || norm(item.title);
-    log(`Step 3: Selecting chapter matching "${chapQuery}"...`);
+    log(`Step 3: Selecting chapter for "${chapQuery}"...`);
     await clickBestCandidateInView("#chapters-view", "#chapters-list .list-card, #chapters-list > div", chapQuery, `Chapter for "${item.title}"`, 100);
     await waitFor(
       () => {
@@ -550,7 +555,7 @@
       { timeout: 25000, interval: 200, label: "Chapter contents" }
     );
 
-    log(`Step 4: Clicking download for "${item.title}"...`);
+    log(`Step 4: Clicking download on "${item.title}"...`);
     const target = await waitFor(
       () => {
         const res = findLectureDownloadTarget(item.title);
@@ -578,7 +583,7 @@
           log("Step 5: Sent cleaned link to Telegram.");
         }
       } else {
-        log("Step 5: Link already sent; skipped.");
+        log("Step 5: Duplicate link skipped.");
       }
     } else {
       setVaultStatus("NO_URL", item.title, "Downloader URL not captured");
