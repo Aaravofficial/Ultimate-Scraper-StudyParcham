@@ -670,15 +670,103 @@
   }
 
 
+  function extractSignedFromUrl(candidateUrl) {
+    if (!candidateUrl || typeof candidateUrl !== "string") return "";
+    if (candidateUrl.includes(".m3u8") && candidateUrl.includes("Signature=")) {
+      return candidateUrl.replace(/\/hls\/[^/]+\/main\.m3u8/i, "/master.m3u8");
+    }
+    return "";
+  }
+
+  function attachDownloaderSnifferToWindow(win) {
+    if (!win || win.__pwSnifferAttached) return;
+    win.__pwSnifferAttached = true;
+
+    const handleCandidate = (u, src) => {
+      if (!u || typeof u !== "string") return;
+      if (u.includes(".m3u8") || u.includes("master.mpd") || u.includes("proxy.studyparcham.in")) {
+        log(`[DL-NET-${src}] ${u}`);
+      }
+      const signed = extractSignedFromUrl(u);
+      if (signed) {
+        latestDownloaderUrl = signed;
+        log(`[DL-SIGNED-CAPTURED] ${signed}`);
+      }
+    };
+
+    try {
+      const entries = win.performance?.getEntriesByType?.("resource") || [];
+      for (const e of entries) handleCandidate(e?.name || "", "PERF");
+    } catch (_) {}
+
+    try {
+      if (typeof win.PerformanceObserver === "function") {
+        const obs = new win.PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            handleCandidate(entry?.name || "", "OBS");
+          }
+        });
+        obs.observe({ entryTypes: ["resource"] });
+      }
+    } catch (_) {}
+
+    try {
+      if (typeof win.fetch === "function") {
+        const origF = win.fetch.bind(win);
+        win.fetch = async function (...args) {
+          const reqUrl = typeof args[0] === "string" ? args[0] : args[0]?.url || "";
+          handleCandidate(reqUrl, "FETCH");
+          return origF(...args);
+        };
+      }
+    } catch (_) {}
+
+    try {
+      if (win.XMLHttpRequest) {
+        const origOpen = win.XMLHttpRequest.prototype.open;
+        win.XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+          handleCandidate(typeof url === "string" ? url : "", "XHR");
+          return origOpen.call(this, method, url, ...rest);
+        };
+      }
+    } catch (_) {}
+  }
+
+  function removeMiniDownloaderFrame() {
+    const existing = document.getElementById("pw-mini-dl-frame");
+    if (existing) existing.remove();
+  }
+
+  // Opens downloader inside a docked mini-screen iframe on the same page/tab instead of a separate tab
+  function openDownloaderInMiniScreen(dlUrl) {
+    removeMiniDownloaderFrame();
+    const screenBox = vaultBox.querySelector("#pw-vault-screen");
+    if (!screenBox) return;
+
+    const frame = document.createElement("iframe");
+    frame.id = "pw-mini-dl-frame";
+    frame.src = dlUrl;
+    frame.style.cssText =
+      "width:100%;height:135px;border:1px solid #38bdf8;border-radius:6px;background:#020617;margin-top:6px;display:block;";
+    frame.onload = () => {
+      try {
+        if (frame.contentWindow) {
+          attachDownloaderSnifferToWindow(frame.contentWindow);
+        }
+      } catch (err) {
+        log(`[DL-FRAME-HOOK-ERR] ${err.message}`);
+      }
+    };
+    screenBox.appendChild(frame);
+  }
+
   const origWindowOpen = window.open.bind(window);
   window.open = function (url, target, features) {
     if (typeof url === "string" && url.includes("downloader")) {
       latestDownloaderUrl = url;
-      const cleaned = cleanStreamUrl(url);
-      if (cleaned) {
-        setVaultStatus("CAPTURED", lastCapturedTitle, cleaned, "Downloader intercepted", "/downloader", "No new tab opened");
-        log("Captured stream URL via window.open");
-      }
+      updateMiniScreen("Mini downloader loading", "/downloader", "Same-tab mini view");
+      log(`[WINDOW-OPEN-INTERCEPTED] ${url}`);
+      openDownloaderInMiniScreen(url);
       return null;
     }
     return origWindowOpen(url, target, features);
@@ -694,6 +782,7 @@
     },
     true
   );
+
 
   async function processLecture(item, index, total) {
     lastCapturedTitle = item.title;
@@ -756,34 +845,56 @@
       { timeout: 20000, interval: 220, label: `Download button for "${item.title}"` }
     );
 
+
     try { target.dlEl.scrollIntoView({ behavior: "instant", block: "center" }); } catch (_) {}
     target.dlEl.click();
 
-    const rawDlUrl = await waitFor(
+    const initialDlUrl = await waitFor(
       () => latestDownloaderUrl || target.href || "",
       { timeout: 6000, interval: 150, label: "Downloader URL" }
     ).catch(() => "");
 
-    const cleaned = cleanStreamUrl(rawDlUrl);
-    log(`[URL-COMPARE] raw="${rawDlUrl}" | cleaned="${cleaned}"`);
+    if (initialDlUrl && !document.getElementById("pw-mini-dl-frame")) {
+      openDownloaderInMiniScreen(initialDlUrl);
+    }
+
+    // Wait dynamically for signed .m3u8 inside mini downloader frame (up to 15s, no chunk download started)
+    const signedOrRaw = await waitFor(
+      () => {
+        const frame = document.getElementById("pw-mini-dl-frame");
+        if (frame && frame.contentWindow) {
+          attachDownloaderSnifferToWindow(frame.contentWindow);
+        }
+        if (latestDownloaderUrl && latestDownloaderUrl.includes(".m3u8") && latestDownloaderUrl.includes("Signature=")) {
+          return latestDownloaderUrl;
+        }
+        return `DIAG:Waiting for signed .m3u8 in mini downloader`;
+      },
+      { timeout: 15000, interval: 300, label: "Signed stream URL in mini downloader", progressEveryMs: 4000 }
+    ).catch(() => initialDlUrl || latestDownloaderUrl || "");
+
+    const cleaned = cleanStreamUrl(signedOrRaw);
+    removeMiniDownloaderFrame();
+
+    log(`[URL-COMPARE] raw="${signedOrRaw}" | cleaned="${cleaned}"`);
     if (cleaned) {
       const hasSig = cleaned.includes("Signature=");
-      setVaultStatus("CAPTURED", item.title, cleaned, "Link ready", "/downloader", hasSig ? "Signed query intact" : "Base URL (no sig in param)");
+      setVaultStatus("CAPTURED", item.title, cleaned, "Link ready", "/downloader", hasSig ? "Signed query intact" : "Base URL fallback");
       if (!sentUrls.has(cleaned)) {
         const ok = await sendTelegram(`${item.title}\nSubject: ${item.subject}\n\n/s1 ${cleaned}`);
         if (ok) {
           sentUrls.add(cleaned);
-          log(`Step 5: Sent link to Telegram${hasSig ? " (with signature)" : ""}.`);
+          log(`Step - 5  :  Sent  Link  To  Telegram${hasSig ? "  (  with  Signature  )  "  :   ""}.`);
         }
       } else {
-        log("Step 5: Duplicate link skipped.");
+        log("Step - 5  :  Duplicate  Link  Skipped  .");
       }
     } else {
       setVaultStatus("NO_URL", item.title, "Downloader URL not captured", "URL missing", "#content-view");
-      log("Warning: downloader URL not captured.");
+      log("Warning  :  Downloader  URL  Not  Captured  .");
     }
 
-    log("Step 6: Returning to Study View...");
+    log("Step - 6  :  Returning  To  Study  View   🕊️  .......");
     await ensureStudyViewWithAllClasses();
   }
 
