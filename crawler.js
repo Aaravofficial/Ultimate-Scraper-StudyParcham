@@ -890,48 +890,26 @@
   }
 
 
-  const MONTH_SHORT_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-  function shiftYearMonthDay(year, month1Based, day, deltaDays) {
-    const dt = new Date(Date.UTC(year, month1Based - 1, day + deltaDays));
-    const y = dt.getUTCFullYear();
-    const m = dt.getUTCMonth() + 1;
-    const d = dt.getUTCDate();
-    return {
-      year: y,
-      month1Based: m,
-      monthStr: String(m).padStart(2, "0"),
-      monthVal: `${y}-${String(m).padStart(2, "0")}`,
-      day: d,
-      dayStr: String(d).padStart(2, "0"),
-      formattedDate: `${String(d).padStart(2, "0")} ${MONTH_SHORT_NAMES[m - 1]} ${y}`
-    };
-  }
-
   function getSelectedScheduleDate() {
     const pickerVal = (document.getElementById("month-picker")?.value || "").trim(); // e.g. "2026-11"
     const activeDateItem = document.querySelector("#weekly-date-strip .date-item.active");
     const dayNumRaw = (activeDateItem?.querySelector(".date-num")?.innerText || "").trim();
-    const clickedDay = dayNumRaw ? parseInt(dayNumRaw, 10) : NaN;
+    const dayNum = dayNumRaw ? dayNumRaw.padStart(2, "0") : "";
 
-    if (pickerVal && /^\d{4}-\d{2}$/.test(pickerVal) && !Number.isNaN(clickedDay)) {
+    if (pickerVal && /^\d{4}-\d{2}$/.test(pickerVal) && dayNum) {
       const [yearStr, monthStr] = pickerVal.split("-");
-      // Site displays (clickedDay - 1) lectures when a date tile is clicked
-      const actual = shiftYearMonthDay(parseInt(yearStr, 10), parseInt(monthStr, 10), clickedDay, -1);
-      return actual.formattedDate;
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const mIdx = parseInt(monthStr, 10) - 1;
+      const mLabel = monthNames[mIdx] || monthStr;
+      return `${dayNum} ${mLabel} ${yearStr}`;
     }
 
-    if (!Number.isNaN(clickedDay) && pickerVal) {
-      const actualDay = String(Math.max(1, clickedDay - 1)).padStart(2, "0");
-      return `${actualDay} (${pickerVal})`;
-    }
-    if (!Number.isNaN(clickedDay)) {
-      return String(Math.max(1, clickedDay - 1)).padStart(2, "0");
-    }
+    if (dayNum && pickerVal) return `${dayNum} (${pickerVal})`;
+    if (dayNum) return dayNum;
     return pickerVal || "";
   }
 
-
+  
   function findScheduleTimeForCard(card) {
     // 1. Check lines inside the card itself first
     const lines = (card.innerText || "")
@@ -1069,6 +1047,22 @@
   let crawlStartMonthVal = "";
   let crawlStartDayNum = "";
 
+  function addOneDayToMonthAndDay(monthVal, dayNum) {
+    if (!monthVal || !/^\d{4}-\d{2}$/.test(monthVal) || !dayNum) {
+      return { monthVal, dayNum };
+    }
+    const [yStr, mStr] = monthVal.split("-");
+    const dInt = parseInt(dayNum, 10);
+    if (Number.isNaN(dInt)) return { monthVal, dayNum };
+
+    const dt = new Date(Date.UTC(parseInt(yStr, 10), parseInt(mStr, 10) - 1, dInt + 1));
+    const nextY = dt.getUTCFullYear();
+    const nextM = String(dt.getUTCMonth() + 1).padStart(2, "0");
+    const nextD = String(dt.getUTCDate());
+    return { monthVal: `${nextY}-${nextM}`, dayNum: nextD };
+  }
+  
+
   function captureStartScheduleDate() {
     const pickerVal = (document.getElementById("month-picker")?.value || "").trim();
     const activeItem = document.querySelector("#weekly-date-strip .date-item.active");
@@ -1083,40 +1077,42 @@
     const firstDate = (queue[0]?.date || "").trim();
     const m = firstDate.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
     if (m) {
+      crawlStartDayNum = String(parseInt(m[1], 10));
       const mm = MONTH_MAP[m[2].toLowerCase()];
-      if (mm) {
-        const restored = shiftYearMonthDay(parseInt(m[3], 10), parseInt(mm, 10), parseInt(m[1], 10), 1);
-        crawlStartMonthVal = restored.monthVal;
-        crawlStartDayNum = String(restored.day);
-      }
+      if (mm) crawlStartMonthVal = `${m[3]}-${mm}`;
     }
   }
+  
 
   async function selectScheduleDateOnView(targetMonthVal, targetDayNum) {
     if (!targetMonthVal && !targetDayNum) return;
 
+    const shifted = addOneDayToMonthAndDay(targetMonthVal, targetDayNum);
+    const clickMonthVal = shifted.monthVal;
+    const clickDayNum = shifted.dayNum;
+
     const monthInput = document.getElementById("month-picker");
-    if (monthInput && targetMonthVal && monthInput.value !== targetMonthVal) {
-      log(`Switching schedule month to ${targetMonthVal}...`);
-      monthInput.value = targetMonthVal;
+    if (monthInput && clickMonthVal && monthInput.value !== clickMonthVal) {
+      log(`Switching schedule month to ${clickMonthVal}...`);
+      monthInput.value = clickMonthVal;
       monthInput.dispatchEvent(new Event("input", { bubbles: true }));
       monthInput.dispatchEvent(new Event("change", { bubbles: true }));
       if (typeof window.handleMonthPick === "function") {
-        try { window.handleMonthPick(targetMonthVal); } catch (_) {}
+        try { window.handleMonthPick(clickMonthVal); } catch (_) {}
       }
       await waitFor(
         () => {
           const items = Array.from(document.querySelectorAll("#weekly-date-strip .date-item"));
-          return items.length > 0 ? true : `DIAG:Waiting for date strip in ${targetMonthVal}`;
+          return items.length > 0 ? true : `DIAG:Waiting for date strip in ${clickMonthVal}`;
         },
-        { timeout: 6000, interval: 200, label: `Date strip for ${targetMonthVal}`, progressEveryMs: 3000 }
+        { timeout: 6000, interval: 200, label: `Date strip for ${clickMonthVal}`, progressEveryMs: 3000 }
       ).catch(() => {});
       await sleep(300);
     }
 
-    if (!targetDayNum) return;
+    if (!clickDayNum) return;
 
-    const desiredNum = String(parseInt(targetDayNum, 10));
+    const desiredNum = String(parseInt(clickDayNum, 10));
     const dateItems = Array.from(document.querySelectorAll("#weekly-date-strip .date-item"));
     const matchItem = dateItems.find((item) => {
       const numTxt = (item.querySelector(".date-num")?.innerText || "").trim();
@@ -1128,10 +1124,11 @@
       matchItem.click();
       await sleep(350);
     } else {
-      log(`Day tile "${desiredNum}" not found in #weekly-date-strip for ${targetMonthVal || "current month"}.`);
+      log(`Day  Tile   " ${desiredNum} "   Not  Found  in  " #weekly-date-strip "  For  ${clickMonthVal || "current month"}  .`);
     }
   }
 
+  
   async function returnToWeeklySchedule() {
     if (getActiveViewId() !== "#weekly-schedule-view") {
       await ensureStudyViewWithAllClasses();
