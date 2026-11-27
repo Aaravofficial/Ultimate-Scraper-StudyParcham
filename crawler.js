@@ -28,6 +28,93 @@
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+  
+  //   Add  as  Many  Batches  as  You  Want  Here  :
+  //   Key  =  Normalized  Batch  Name   (  Lowercase  ,,   Punctuation  Stripped  ,,   Spaces  Collapsed  )
+  //   Value  =  Short  Batch  Name  Appended  After  " itz arv "
+  const BATCH_SHORT_NAMES = {
+    "SAFAR 4.0 SSC CGL | CHSL 2027 with English Books": "SFR 40 SC CSL 27",
+    "Yakeen 2.0 2027": "YKN NT 20 27"
+  };
+
+  let currentBatchRawName = "";
+  let currentBatchShortName = "";
+
+  function getShortBatchName(rawBatchName) {
+    const cleanRaw = String(rawBatchName || "").replace(/\s+/g, " ").trim();
+    if (!cleanRaw) return "";
+
+    const key = norm(cleanRaw);
+    if (BATCH_SHORT_NAMES[key]) {
+      return BATCH_SHORT_NAMES[key];
+    }
+
+    // Fallback generator if a batch is not yet in BATCH_SHORT_NAMES
+    const skip = new Set(["with", "and", "for", "the", "of", "in", "by", "batch", "live", "recorded"]);
+    const parts = cleanRaw
+      .replace(/[|•–—:()\[\]{}.,!?/\\-]+/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w && !skip.has(w.toLowerCase()));
+
+    const compact = parts.map((w) => {
+      if (/^\d+$/.test(w)) return w.length === 4 ? w.slice(-2) : w;
+      if (w.length <= 4) return w.toUpperCase();
+      return w
+        .replace(/[aeiou]/gi, "")
+        .slice(0, 3)
+        .toUpperCase() || w.slice(0, 3).toUpperCase();
+    });
+
+    return compact.join(" ").trim();
+  }
+
+  function detectBatchNameFromStudyView() {
+    const studyEl = document.getElementById("study-view");
+    if (!studyEl) return "";
+
+    const allCls = findAllClassesEl();
+    const allClsRect = allCls ? allCls.getBoundingClientRect() : null;
+
+    const candidates = Array.from(studyEl.querySelectorAll("h1, h2, h3, h4, h5, div, span, p"))
+      .filter((el) => {
+        if (!isVisible(el) || el.children.length > 2) return false;
+        const txt = (el.innerText || "").replace(/\s+/g, " ").trim();
+        if (!txt || txt.length < 3 || txt.length > 140) return false;
+        const low = txt.toLowerCase();
+        if (
+          low === "select batch" ||
+          low === "batch offerings" ||
+          low === "all classes" ||
+          low === "view weekly schedule" ||
+          low.includes("expires in")
+        ) {
+          return false;
+        }
+        if (allClsRect) {
+          const r = el.getBoundingClientRect();
+          // In SS-2, the batch title sits above "Batch Offerings" / "All Classes"
+          if (r.top >= allClsRect.top) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+
+    const picked = candidates[0] ? (candidates[0].innerText || "").replace(/\s+/g, " ").trim() : "";
+    if (picked) {
+      currentBatchRawName = picked;
+      currentBatchShortName = getShortBatchName(picked);
+      log(`[BATCH-DETECTED] Raw="${currentBatchRawName}" -> Short="${currentBatchShortName}"`);
+    }
+    return currentBatchShortName;
+  }
+
+  function buildTgCommandText(streamUrl) {
+    const batchPart = currentBatchShortName ? ` ${currentBatchShortName}` : "";
+    return `/s ${streamUrl} -n itz arv${batchPart}`;
+  }
+
+  
   // Bottom-Left HUD
   const hud = document.createElement("div");
   hud.id = "pw-hud-panel";
@@ -133,20 +220,30 @@
     qBadge.textContent = `Q: ${queue.length}`;
   }
 
-  async function sendTelegram(text) {
+
+  async function sendTelegram(text, options = {}) {
     try {
+      const payload = {
+        chat_id: CHAT_ID,
+        text,
+        disable_web_page_preview: true
+      };
+      if (options.parseMode) {
+        payload.parse_mode = options.parseMode;
+      }
       const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: CHAT_ID, text })
+        body: JSON.stringify(payload)
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       return true;
     } catch (err) {
-      log(`Telegram error: ${err.message}`);
+      log(`Telegram  Error   :   ${err.message}`);
       return false;
     }
   }
+
 
   function isVisible(el) {
     if (!el || !(el instanceof Element)) return false;
@@ -343,11 +440,14 @@
 
   vaultBox.querySelector("#pw-resend-tg").onclick = async () => {
     if (!lastCapturedUrl) return log("No captured link.");
-    const ok = await sendTelegram(
-      `${lastCapturedTitle || "Lecture"}\nSubject: ${lastCapturedSubject || "General"}\n\n/s1 ${lastCapturedUrl}`
-    );
-    if (ok) log("Sent link to TG.");
+    if (!currentBatchShortName && isOnStudyViewReady()) {
+      detectBatchNameFromStudyView();
+    }
+    const cmd = buildTgCommandText(lastCapturedUrl);
+    const ok = await sendTelegram(`\`${cmd}\``, { parseMode: "Markdown" });
+    if (ok) log(`Sent  Command  To  TG   :   ${cmd}`);
   };
+
 
   function findScheduleCard(target) {
     const viewEl = getActiveViewEl();
@@ -422,15 +522,18 @@
     true
   );
 
+
   async function ensureStudyViewWithAllClasses() {
     if (isOnStudyViewReady()) {
-      updateMiniScreen("Study View Ready", "#study-view", "All Classes present");
+      const bShort = detectBatchNameFromStudyView();
+      updateMiniScreen("Study View Ready", "#study-view", bShort || "All Classes present");
       return true;
     }
 
     for (let attempt = 0; attempt < 6; attempt++) {
       if (isOnStudyViewReady()) {
-        updateMiniScreen("Study View Ready", "#study-view", "All Classes present");
+        const bShort = detectBatchNameFromStudyView();
+        updateMiniScreen("Study View Ready", "#study-view", bShort || "All Classes present");
         return true;
       }
       const before = getActiveViewId();
@@ -451,7 +554,8 @@
 
       await sleep(350);
       if (isOnStudyViewReady()) {
-        updateMiniScreen("Study View Ready", "#study-view", "All Classes present");
+        const bShort = detectBatchNameFromStudyView();
+        updateMiniScreen("Study View Ready", "#study-view", bShort || "All Classes present");
         return true;
       }
     }
@@ -461,9 +565,11 @@
       await sleep(400);
     }
     const ok = isOnStudyViewReady();
-    updateMiniScreen(ok ? "Study View Ready" : "Study View Missing", getActiveViewId());
+    const bShort = ok ? detectBatchNameFromStudyView() : "";
+    updateMiniScreen(ok ? "Study View Ready" : "Study View Missing", getActiveViewId(), bShort);
     return ok;
   }
+
 
   async function returnToWeeklySchedule() {
     if (getActiveViewId() === "#weekly-schedule-view") {
@@ -919,15 +1025,16 @@
     const cleaned = cleanStreamUrl(signedOrRaw);
     removeMiniDownloaderFrame();
 
-    log(`[URL-COMPARE] raw="${signedOrRaw}" | cleaned="${cleaned}"`);
+    log(`[  URL - COMPARE  ]   Raw  =  "  ${signedOrRaw}  "   |   Cleaned  =  "  ${cleaned}  "`);
     if (cleaned) {
       const hasSig = cleaned.includes("Signature=");
       setVaultStatus("CAPTURED", item.title, cleaned, "Link ready", "/downloader", hasSig ? "Signed query intact" : "Base URL fallback");
       if (!sentUrls.has(cleaned)) {
-        const ok = await sendTelegram(`${item.title}\nSubject: ${item.subject}\n\n/s1 ${cleaned}`);
+        const tgCmd = buildTgCommandText(cleaned);
+        const ok = await sendTelegram(`\`${tgCmd}\``, { parseMode: "Markdown" });
         if (ok) {
           sentUrls.add(cleaned);
-          log(`Step - 5  :  Sent  Link  To  Telegram${hasSig ? "  (  with  Signature  )  "  :   ""}.`);
+          log(`Step - 5  :  Sent  Command  To  Telegram${hasSig ? "  (  with  Signature  )  "  :   ""}: ${tgCmd}`);
         }
       } else {
         log("Step - 5  :  Duplicate  Link  Skipped  .");
