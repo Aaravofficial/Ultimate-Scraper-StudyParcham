@@ -1124,7 +1124,6 @@
           sentUrls.add(cleaned);
           log(`Step - 5  :  Sent  Command  To  Telegram${hasSig ? "  (  with  Signature  )  "  :   ""}: ${tgCmd}`);
         }
-      }
       } else {
         log("Step - 5  :  Duplicate  Link  Skipped  .");
       }
