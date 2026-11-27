@@ -34,26 +34,157 @@
   //   Value  =  Short  Batch  Name  Appended  After  " itz arv "
   //   Paste  The  Exact  Batch Name  From  The  Site  as  The  Key  ,,   &  Your  Short Name  as  The  Value  .
   //   No  Manual   Punctuation / Case  Cleanup  Needed  —  Normalization  Happens  Automatically  .
-  const BATCH_SHORT_NAMES = {
-    "SAFAR 4.0 SSC CGL | CHSL 2027 with English Books": "SFR 40 SC CSL 27",
-    "Yakeen 2.0 2027": "YKN NT 20 27"
-    
+  //   =======================================================================================================================
+  //             1.   SUBJECT  SHORT  CODES   (  Add  More  Subjects  &  Short Codes  Anytime  )
+  //   =======================================================================================================================
+  const SUBJECT_SHORT_CODES = {
+    "physics": "PHY",
+    "physical chemistry": "PC",
+    "organic chemistry": "OC",
+    "inorganic chemistry": "IC",
+    "botany": "BOT",
+    "zoology": "ZOO",
+    "biology": "BIO",
+    "geography": "GEO",
+    "economics": "ECO",
+    "computer": "COM",
+    "maths": "MTS",
+    "mathematics": "MTS",
+    "arithmetic maths": "ARTMTC－MTS",
+    "advanced maths": "ADVNCD－MTS",
+    "english": "ENG",
+    "reasoning": "RSNG",
+    "current affairs": "CRNT－AFRS",
+    "current affairs magazine": "CNT－AFRS  Magazine",
+    "science": "SCNC",
+    "polity": "PLT",
+    "history": "HSTRY",
+    "static gk": "STC－GK",
+    "statik gk": "STC－GK"
   };
 
-  const NORMALIZED_BATCH_SHORT_NAMES = Object.fromEntries(
-    Object.entries(BATCH_SHORT_NAMES).map(([rawKey, shortVal]) => [norm(rawKey), shortVal])
+  //   ==========================================================================================
+  //             2.   BATCH  CONFIGS  ,,   SUBJECT  OVERRIDES  &  TEACHER  SHORT  CODES
+  //   ==========================================================================================
+  const BATCH_CONFIG = {
+    "SAFAR 4.0 SSC CGL | CHSL 2027 with English Books": {
+      shortCode: "SFR 40 SC CSL 27",
+      currentAffairsCode: "CNT－AFS",
+      currentAffairsRangeEnabled: true,
+      subjects: {
+        "reasoning": "RSNG",
+        "geography": "GEO",
+        "economics": "ECO",
+        "computer": "COM",
+        "arithmetic maths": "ARTMTC－MTS",
+        "advanced maths": "ADVNCD－MTS",
+        "polity": "PLT",
+        "science": "SCNC",
+        "english": "ENG",
+        "history": "HSTRY",
+        "static gk": "STK－GK",
+        "statik gk": "STK－GK",
+        "current affairs": "CNT－AFS",
+        "current affairs magazine": "CNT－AFRS  Magazine",
+        "mathematics": "MTS"
+      },
+      teachers: {
+        "jitin sagar sir": "JTN S",
+        "akshay mudgal sir": "AKSY S",
+        "bhagyashree bhartiya ma'am": "BHGSRE M",
+        "bhagyashree bhartiya mam": "BHGSRE M",
+        "ravinder singh sir": "RVNDR S",
+        "shubham singh sir": "SBHM S",
+        "muskan sharma ma'am": "MSKN M",
+        "muskan sharma mam": "MSKN M",
+        "bhragu kulshrestha sir": "BRGU S",
+        "aditya kushwaha sir": "ADTY S",
+        "raja gupta sir": "RAJA S"
+      }
+    },
+    "Yakeen 2.0 2027": {
+      shortCode: "YKN NT 20 27",
+      currentAffairsCode: "CRNT－AFRS",
+      currentAffairsRangeEnabled: false,
+      subjects: {
+        "physics": "PHY",
+        "physical chemistry": "PC",
+        "organic chemistry": "OC",
+        "inorganic chemistry": "IC",
+        "botany": "BOT",
+        "zoology": "ZOO",
+        "biology": "BIO"
+      },
+      teachers: {
+        "saleem sir": "SAL S",
+        "saleem ahmad sir": "SAL S",
+        "mr sir": "MR S",
+        "manish raj sir": "MR S",
+        "amit mahajan sir": "AMT S",
+        "sudhanshu kumar sir": "SUDH S",
+        "shubh karan choudhary sir": "SBH KRN S",
+        "pankaj sijariya sir": "PNKJ S",
+        "kunwar om pandey sir": "KNWR S",
+        "mohit dadheech sir": "MHT S",
+        "rupesh chaudhary sir": "RUP S",
+        "vipin sharma sir": "VPN S",
+        "samapti sinha ma'am": "SMPT M",
+        "samapti sinha mam": "SMPT M",
+        "dr. akanksha agarwal ma'am": "AKSA M",
+        "dr akanksha agarwal ma'am": "AKSA M",
+        "dr. akanksha agarwal mam": "AKSA M",
+        "dr akanksha agarwal mam": "AKSA M"
+      }
+    }
+  };
+
+  // Global teacher lookup across all configured batches so inline "Subject By Teacher" works anywhere
+  const GLOBAL_TEACHER_CODES = (() => {
+    const map = {};
+    for (const cfg of Object.values(BATCH_CONFIG)) {
+      for (const [tName, tCode] of Object.entries(cfg.teachers || {})) {
+        if (tCode) map[norm(tName)] = tCode;
+      }
+    }
+    return map;
+  })();
+
+  const NORMALIZED_BATCH_CONFIG = Object.fromEntries(
+    Object.entries(BATCH_CONFIG).map(([rawBatch, cfg]) => {
+      const normSubjects = Object.fromEntries(
+        Object.entries(cfg.subjects || {}).map(([k, v]) => [norm(k), v])
+      );
+      const normTeachers = Object.fromEntries(
+        Object.entries(cfg.teachers || {}).map(([k, v]) => [norm(k), v])
+      );
+      return [
+        norm(rawBatch),
+        {
+          ...cfg,
+          normSubjects,
+          normTeachers
+        }
+      ];
+    })
   );
 
   let currentBatchRawName = "";
   let currentBatchShortName = "";
+  let currentChapterCode = "C01";
+  let lastMatchedChapterText = "";
+
+  function getActiveBatchCfg() {
+    if (!currentBatchRawName) return null;
+    return NORMALIZED_BATCH_CONFIG[norm(currentBatchRawName)] || null;
+  }
 
   function getShortBatchName(rawBatchName) {
     const cleanRaw = String(rawBatchName || "").replace(/\s+/g, " ").trim();
     if (!cleanRaw) return "";
 
-    const key = norm(cleanRaw);
-    if (NORMALIZED_BATCH_SHORT_NAMES[key]) {
-      return NORMALIZED_BATCH_SHORT_NAMES[key];
+    const cfg = NORMALIZED_BATCH_CONFIG[norm(cleanRaw)];
+    if (cfg && cfg.shortCode) {
+      return cfg.shortCode;
     }
 
     const skip = new Set(["with", "and", "for", "the", "of", "in", "by", "batch", "live", "recorded"]);
@@ -77,6 +208,181 @@
     return compact.join(" ").trim();
   }
 
+  function inferTeacherCodeFromName(teacherName = "") {
+    const cleaned = String(teacherName || "").trim();
+    if (!cleaned) return "";
+    const nKey = norm(cleaned);
+    const batchCfg = getActiveBatchCfg();
+    if (batchCfg && batchCfg.normTeachers && batchCfg.normTeachers[nKey]) {
+      return batchCfg.normTeachers[nKey];
+    }
+    if (GLOBAL_TEACHER_CODES[nKey]) {
+      return GLOBAL_TEACHER_CODES[nKey];
+    }
+    for (const [k, v] of Object.entries(GLOBAL_TEACHER_CODES)) {
+      if (k && (nKey.includes(k) || k.includes(nKey))) return v;
+    }
+    const parts = cleaned.split(/\s+/);
+    const lastWord = (parts[parts.length - 1] || "").toLowerCase();
+    const roleSuffix = /^(ma'am|mam|madam|miss|mrs|ms)$/i.test(lastWord) ? "M" : "S";
+    const tokens = parts
+      .filter((p) => !/^(sir|ma'am|mam|madam|miss|mrs|ms|dr\.?)$/i.test(p))
+      .map((p) => p.replace(/[^A-Za-z]/g, "").toUpperCase())
+      .filter(Boolean);
+    if (!tokens.length) return "";
+    const abbr = tokens.map((t) => (t.length <= 4 ? t : t.replace(/[AEIOU]/g, "").slice(0, 4) || t.slice(0, 4))).join(" ");
+    return `${abbr} ${roleSuffix}`;
+  }
+
+  function parseSubjectAndTeacher(rawSubject = "", contextText = "") {
+    const cleanSub = String(rawSubject || "").replace(/\s+/g, " ").trim();
+    let baseSubject = cleanSub;
+    let inlineTeacher = "";
+
+    // Handles subjects formatted like "Physics By Saleem Sir"
+    const byMatch = cleanSub.match(/^(.+?)\s+\bby\b\s+(.+)$/i);
+    if (byMatch) {
+      baseSubject = byMatch[1].trim();
+      inlineTeacher = byMatch[2].trim();
+    }
+
+    const batchCfg = getActiveBatchCfg();
+    const subKey = norm(baseSubject);
+
+    let subjectCode =
+      (batchCfg && batchCfg.normSubjects && batchCfg.normSubjects[subKey]) ||
+      SUBJECT_SHORT_CODES[subKey] ||
+      "";
+
+    if (!subjectCode) {
+      for (const [k, code] of Object.entries(SUBJECT_SHORT_CODES)) {
+        if (subKey.includes(k) || k.includes(subKey)) {
+          subjectCode = code;
+          break;
+        }
+      }
+    }
+
+    if (!subjectCode) {
+      subjectCode =
+        baseSubject
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, " ")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((w) => w.slice(0, 4))
+          .join("－") || "SUB";
+    }
+
+    let teacherCode = "";
+    const teacherMap = (batchCfg && batchCfg.normTeachers) || {};
+    const searchPool = [inlineTeacher, contextText, cleanSub].filter(Boolean);
+
+    for (const candidate of searchPool) {
+      const cNorm = norm(candidate);
+      if (teacherMap[cNorm]) {
+        teacherCode = teacherMap[cNorm];
+        break;
+      }
+      if (GLOBAL_TEACHER_CODES[cNorm]) {
+        teacherCode = GLOBAL_TEACHER_CODES[cNorm];
+        break;
+      }
+      for (const [tKey, tCode] of Object.entries(teacherMap)) {
+        if (tKey && cNorm.includes(tKey)) {
+          teacherCode = tCode;
+          break;
+        }
+      }
+      if (teacherCode) break;
+      for (const [gKey, gCode] of Object.entries(GLOBAL_TEACHER_CODES)) {
+        if (gKey && cNorm.includes(gKey)) {
+          teacherCode = gCode;
+          break;
+        }
+      }
+      if (teacherCode) break;
+    }
+
+    if (!teacherCode && inlineTeacher) {
+      teacherCode = inferTeacherCodeFromName(inlineTeacher);
+    }
+
+    return {
+      baseSubject,
+      subjectCode,
+      teacherCode: teacherCode || "TCH"
+    };
+  }
+
+  function extractChapterCode(chapterText = "", fallbackIndex = 1) {
+    const m = String(chapterText || "").match(/\bch(?:apter)?\s*[-–—:]*\s*0*(\d+)\b/i);
+    const num = m ? parseInt(m[1], 10) : fallbackIndex;
+    return `C${String(Math.max(1, num)).padStart(2, "0")}`;
+  }
+
+  function extractLectureNumber(titleText = "", fallbackIndex = 1) {
+    const clean = String(titleText || "");
+    const m =
+      clean.match(/(?:lecture|lec|class|part|no\.?|[-–—:])\s*0*(\d{1,3})\b/i) ||
+      clean.match(/\b0*(\d{1,3})\s*(?::|\||$)/);
+    const num = m ? parseInt(m[1], 10) : fallbackIndex;
+    return String(Math.max(1, num)).padStart(2, "0");
+  }
+
+  const MONTH_MAP = {
+    jan: "01", january: "01",
+    feb: "02", february: "02",
+    mar: "03", march: "03",
+    apr: "04", april: "04",
+    may: "05",
+    jun: "06", june: "06",
+    jul: "07", july: "07",
+    aug: "08", august: "08",
+    sep: "09", sept: "09", september: "09",
+    oct: "10", october: "10",
+    nov: "11", november: "11",
+    dec: "12", december: "12"
+  };
+
+  function formatUploadDateTilde(dateStr = "") {
+    const raw = String(dateStr || "").trim();
+    const m = raw.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+    if (m) {
+      const dd = m[1].padStart(2, "0");
+      const mm = MONTH_MAP[m[2].toLowerCase()] || "01";
+      const yy = m[3].slice(-2);
+      return `${dd}～${mm}～${yy}`;
+    }
+    const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (iso) {
+      return `${iso[3]}～${iso[2]}～${iso[1].slice(-2)}`;
+    }
+    return raw.replace(/[\s/-]+/g, "～") || "00～00～00";
+  }
+
+  function extractCurrentAffairsRange(titleText = "") {
+    const m = String(titleText || "").match(
+      /\b(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})\s*[-–—to]+\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})\b/i
+    );
+    if (!m) return "";
+
+    const d1 = m[1].padStart(2, "0");
+    const m1 = MONTH_MAP[m[2].toLowerCase()] || "01";
+    const y1 = m[3].slice(-2);
+
+    const d2 = m[4].padStart(2, "0");
+    const m2 = MONTH_MAP[m[5].toLowerCase()] || m1;
+    const y2 = m[6].slice(-2);
+    const yy = y2 || y1;
+
+    if (m1 === m2) {
+      return `${d1}－${d2}－${m1}－${yy}`;
+    }
+    return `${d1}－${d2}－${m1}－${m2}－${yy}`;
+  }
+
   function isInsideModalOrDropdown(el) {
     return !!el.closest(
       "[role='dialog'], [role='listbox'], [role='menu'], .modal, .dropdown-menu, .batch-modal, .selector-modal"
@@ -84,7 +390,7 @@
   }
 
   function detectBatchNameFromStudyView() {
-    //   1.  Direct  Read  From  The  " #enrolled-batch-select "  Dropdown  On  " #study-view "
+    // 1. Direct Read From The "#enrolled-batch-select" Dropdown On "#study-view"
     const sel = document.getElementById("enrolled-batch-select");
     if (sel && sel.options && sel.selectedIndex >= 0) {
       const opt = sel.options[sel.selectedIndex];
@@ -97,7 +403,7 @@
       }
     }
 
-    //   2.  Fallback  Inside  " #study-view "  Only   (  Never Touches  " .offerings-container "  )
+    // 2. Fallback Inside "#study-view" Only (Never Touches ".offerings-container")
     const studyEl = document.getElementById("study-view");
     const headerTitle = studyEl?.querySelector(".study-header-bg .batch-dropdown");
     const fallbackText = (headerTitle?.innerText || headerTitle?.textContent || "").replace(/\s+/g, " ").trim();
@@ -112,9 +418,38 @@
     return currentBatchShortName;
   }
 
-  function buildTgCommandText(streamUrl) {
-    const shortPart = currentBatchShortName ? ` ${currentBatchShortName}` : "";
-    return `/s ${streamUrl} -n itz arv ${shortPart}`;
+  function buildTgCommandText(streamUrl, meta = {}) {
+    const batchShort = currentBatchShortName || "BATCH";
+    const batchCfg = getActiveBatchCfg();
+    const { subjectCode, teacherCode } = parseSubjectAndTeacher(
+      meta.subject || "",
+      meta.contextText || ""
+    );
+
+    const isCurrentAffairs =
+      norm(meta.subject || "").includes("current affairs") ||
+      subjectCode === "CRNT－AFRS" ||
+      subjectCode === "CNT－AFS";
+
+    const finalSubCode =
+      isCurrentAffairs && batchCfg && batchCfg.currentAffairsCode
+        ? batchCfg.currentAffairsCode
+        : subjectCode;
+
+    const chapCode = meta.chapterCode || currentChapterCode || "C01";
+    const lecNum = meta.lectureNo || extractLectureNumber(meta.title || "", (meta.index || 0) + 1);
+    const uploadDateTilde = formatUploadDateTilde(meta.date || "");
+
+    const rangeStr =
+      isCurrentAffairs && (!batchCfg || batchCfg.currentAffairsRangeEnabled !== false)
+        ? extractCurrentAffairsRange(meta.title || "")
+        : "";
+
+    const namingTail = rangeStr
+      ? `${batchShort}  ${finalSubCode}  ${teacherCode}  ${chapCode} ${lecNum}  ${rangeStr}｜${uploadDateTilde}`
+      : `${batchShort}  ${finalSubCode}  ${teacherCode}  ${chapCode} ${lecNum} ｜ ${uploadDateTilde}`;
+
+    return `/s ${streamUrl} -n itz arv  ${namingTail}`;
   }
 
   function escapeHtml(str = "") {
@@ -125,9 +460,14 @@
       .replace(/"/g, "&quot;");
   }
 
-  
-  function formatTgMessage(title, subject, streamUrl, date = "", time = "") {
-    const cmd = buildTgCommandText(streamUrl);
+  function formatTgMessage(title, subject, streamUrl, date = "", time = "", extraMeta = {}) {
+    const cmd = buildTgCommandText(streamUrl, {
+      title,
+      subject,
+      date,
+      time,
+      ...extraMeta
+    });
     const subHtml = `<b>Subject     :     ${escapeHtml(subject || "General")}</b>`;
 
     const detailsBlockquote =
@@ -736,6 +1076,7 @@
     );
 
     clickCardThoroughly(firstMatch);
+    lastMatchedChapterText = firstMatch.text || "";
     updateMiniScreen(`Clicked ${label}`, nextViewId, firstMatch.text.replace(/\s+/g, " ").slice(0, 36));
     log(`Clicked ${label}: "${firstMatch.text.replace(/\s+/g, " ").slice(0, 35)}" (score ${firstMatch.score})`);
 
@@ -1073,6 +1414,7 @@
       100
     );
 
+    currentChapterCode = extractChapterCode(lastMatchedChapterText || chapQuery, index + 1);
     await waitForViewSettled("#content-view", "#content-list .content-card, #content-list > div", "Content list", 25000);
 
     log(`Step 4: Clicking download on "${item.title}"...`);
@@ -1123,8 +1465,15 @@
       setVaultStatus("CAPTURED", item.title, cleaned, "Link ready", "/downloader", hasSig ? "Signed query intact" : "Base URL fallback");
       if (!sentUrls.has(cleaned)) {
         if (isOnStudyViewReady()) detectBatchNameFromStudyView();
-        const tgCmd = buildTgCommandText(cleaned);
-        const tgMsg = formatTgMessage(item.title, item.subject, cleaned, item.date, item.time);
+        const extraMeta = {
+          chapterCode: currentChapterCode,
+          lectureNo: extractLectureNumber(item.title, index + 1),
+          index,
+          contextText: `${item.title} ${lastMatchedChapterText}`
+        };
+        const tgCmd = buildTgCommandText(cleaned, extraMeta);
+        const tgMsg = formatTgMessage(item.title, item.subject, cleaned, item.date, item.time, extraMeta);
+
         const ok = await sendTelegram(tgMsg, { parseMode: "HTML" });
         if (ok) {
           sentUrls.add(cleaned);
