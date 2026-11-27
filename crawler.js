@@ -114,7 +114,7 @@
 
   function buildTgCommandText(streamUrl) {
     const shortPart = currentBatchShortName ? ` ${currentBatchShortName}` : "";
-    return `/s ${streamUrl} -n itz arv${shortPart}`;
+    return `/s ${streamUrl} -n itz arv ${shortPart}`;
   }
 
   function escapeMarkdownCode(str = "") {
