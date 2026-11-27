@@ -84,66 +84,37 @@
   }
 
   function detectBatchNameFromStudyView() {
-    const studyEl = document.getElementById("study-view");
-    if (!studyEl) return currentBatchShortName;
-
-    const allCls = findAllClassesEl();
-    const allClsRect = allCls ? allCls.getBoundingClientRect() : null;
-
-    const selectBatchEl = Array.from(studyEl.querySelectorAll("div, span, p, small, label")).find((el) => {
-      if (!isVisible(el) || isInsideModalOrDropdown(el)) return false;
-      const t = (el.innerText || "").replace(/\s+/g, " ").trim().toLowerCase();
-      return t === "select batch";
-    });
-
-    const selectRect = selectBatchEl ? selectBatchEl.getBoundingClientRect() : null;
-
-    // Allow up to 5 child nodes (e.g., icon/span wrappers) and pick the smallest matching element directly under "SELECT BATCH"
-    const candidates = Array.from(studyEl.querySelectorAll("h1, h2, h3, h4, h5, div, span, p, button"))
-      .filter((el) => {
-        if (!isVisible(el) || el.children.length > 5 || isInsideModalOrDropdown(el)) return false;
-        const txt = (el.innerText || "").replace(/\s+/g, " ").trim();
-        if (!txt || txt.length < 2 || txt.length > 160) return false;
-        const low = txt.toLowerCase();
-        if (
-          low === "select batch" ||
-          low === "batch offerings" ||
-          low === "all classes" ||
-          low === "view weekly schedule" ||
-          low.includes("expires in") ||
-          low.includes("upcoming events")
-        ) {
-          return false;
-        }
-        const r = el.getBoundingClientRect();
-        if (r.width <= 0 || r.height <= 0) return false;
-        if (selectRect) {
-          if (r.top < selectRect.bottom - 4) return false;
-          if (r.top > selectRect.bottom + 110) return false;
-        }
-        if (allClsRect && r.top >= allClsRect.top) return false;
-        return true;
-      })
-      .sort((a, b) => {
-        const aArea = a.getBoundingClientRect().width * a.getBoundingClientRect().height;
-        const bArea = b.getBoundingClientRect().width * b.getBoundingClientRect().height;
-        return aArea - bArea;
-      });
-
-    const picked = candidates[0] ? (candidates[0].innerText || "").replace(/\s+/g, " ").trim() : "";
-    if (picked) {
-      currentBatchRawName = picked;
-      currentBatchShortName = getShortBatchName(picked);
-      log(`[BATCH-DETECTED] Raw="${currentBatchRawName}" -> Short="${currentBatchShortName}"`);
-    } else {
-      log(`[BATCH-MISS] Could not find batch title on #study-view.`);
+    //   1.  Direct  Read  From  The  " #enrolled-batch-select "  Dropdown  On  " #study-view "
+    const sel = document.getElementById("enrolled-batch-select");
+    if (sel && sel.options && sel.selectedIndex >= 0) {
+      const opt = sel.options[sel.selectedIndex];
+      const selectedText = (opt?.textContent || opt?.innerText || "").replace(/\s+/g, " ").trim();
+      if (selectedText) {
+        currentBatchRawName = selectedText;
+        currentBatchShortName = getShortBatchName(selectedText);
+        log(`[  BATCH - DETECTED  ]   Raw  =  " ${currentBatchRawName} "   -->   Short  =  " ${currentBatchShortName} "`);
+        return currentBatchShortName;
+      }
     }
+
+    //   2.  Fallback  Inside  " #study-view "  Only   (  Never Touches  " .offerings-container "  )
+    const studyEl = document.getElementById("study-view");
+    const headerTitle = studyEl?.querySelector(".study-header-bg .batch-dropdown");
+    const fallbackText = (headerTitle?.innerText || headerTitle?.textContent || "").replace(/\s+/g, " ").trim();
+    if (fallbackText) {
+      currentBatchRawName = fallbackText;
+      currentBatchShortName = getShortBatchName(fallbackText);
+      log(`[  BATCH - DETECTED  ]   Raw  =  " ${currentBatchRawName} "   -->   Short  =  " ${currentBatchShortName} "`);
+      return currentBatchShortName;
+    }
+
+    log(`[  BATCH - MISS  ]   Could  Not  Read  " #enrolled-batch-select "  On  " #study-view "  .`);
     return currentBatchShortName;
   }
 
   function buildTgCommandText(streamUrl) {
-    const batchPart = currentBatchShortName ? `  ${currentBatchShortName}    ` : "    ";
-    return `/s  -n itz arv${batchPart}${streamUrl}`;
+    const shortPart = currentBatchShortName ? ` ${currentBatchShortName}` : "";
+    return `/s ${streamUrl} -n itz arv${shortPart}`;
   }
 
   function escapeMarkdownCode(str = "") {
