@@ -125,15 +125,21 @@
       .replace(/"/g, "&quot;");
   }
 
+  
   function formatTgMessage(title, subject, streamUrl, date = "", time = "") {
     const cmd = buildTgCommandText(streamUrl);
-    const subHtml = `<b>${escapeHtml(subject || "General")}</b>`;
-    const titleHtml = `<b><i>${escapeHtml(title || "Lecture")}</i></b>`;
-    const dateHtml = `<b><i>${escapeHtml(date || "N/A")}</i></b>`;
-    const timeHtml = `<b><i>${escapeHtml(time || "N/A")}</i></b>`;
-    const cmdHtml = `<blockquote><code>${escapeHtml(cmd)}</code></blockquote>`;
+    const subHtml = `<b>Subject     :     ${escapeHtml(subject || "General")}</b>`;
 
-    return `${subHtml}\n\n\n${titleHtml}\n\n${dateHtml}\n\n${timeHtml}\n\n\n\n${cmdHtml}`;
+    const detailsBlockquote =
+      `<blockquote>` +
+      `<b><i>Title     :     ${escapeHtml(title || "Lecture")}</i></b>\n\n` +
+      `<b><i>Date Uploaded     :     ${escapeHtml(date || "N/A")}</i></b>\n\n` +
+      `<b><i>Time Uploaded     :     ${escapeHtml(time || "N/A")}</i></b>` +
+      `</blockquote>`;
+
+    const cmdHtml = `<code>${escapeHtml(cmd)}</code>`;
+
+    return `${subHtml}\n\n\n\n${detailsBlockquote}\n\n\n${cmdHtml}`;
   }
 
   
