@@ -890,24 +890,47 @@
   }
 
 
+  const MONTH_SHORT_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  function shiftYearMonthDay(year, month1Based, day, deltaDays) {
+    const dt = new Date(Date.UTC(year, month1Based - 1, day + deltaDays));
+    const y = dt.getUTCFullYear();
+    const m = dt.getUTCMonth() + 1;
+    const d = dt.getUTCDate();
+    return {
+      year: y,
+      month1Based: m,
+      monthStr: String(m).padStart(2, "0"),
+      monthVal: `${y}-${String(m).padStart(2, "0")}`,
+      day: d,
+      dayStr: String(d).padStart(2, "0"),
+      formattedDate: `${String(d).padStart(2, "0")} ${MONTH_SHORT_NAMES[m - 1]} ${y}`
+    };
+  }
+
   function getSelectedScheduleDate() {
     const pickerVal = (document.getElementById("month-picker")?.value || "").trim(); // e.g. "2026-11"
     const activeDateItem = document.querySelector("#weekly-date-strip .date-item.active");
     const dayNumRaw = (activeDateItem?.querySelector(".date-num")?.innerText || "").trim();
-    const dayNum = dayNumRaw ? dayNumRaw.padStart(2, "0") : "";
+    const clickedDay = dayNumRaw ? parseInt(dayNumRaw, 10) : NaN;
 
-    if (pickerVal && /^\d{4}-\d{2}$/.test(pickerVal) && dayNum) {
+    if (pickerVal && /^\d{4}-\d{2}$/.test(pickerVal) && !Number.isNaN(clickedDay)) {
       const [yearStr, monthStr] = pickerVal.split("-");
-      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const mIdx = parseInt(monthStr, 10) - 1;
-      const mLabel = monthNames[mIdx] || monthStr;
-      return `${dayNum} ${mLabel} ${yearStr}`;
+      // Site displays (clickedDay - 1) lectures when a date tile is clicked
+      const actual = shiftYearMonthDay(parseInt(yearStr, 10), parseInt(monthStr, 10), clickedDay, -1);
+      return actual.formattedDate;
     }
 
-    if (dayNum && pickerVal) return `${dayNum} (${pickerVal})`;
-    if (dayNum) return dayNum;
+    if (!Number.isNaN(clickedDay) && pickerVal) {
+      const actualDay = String(Math.max(1, clickedDay - 1)).padStart(2, "0");
+      return `${actualDay} (${pickerVal})`;
+    }
+    if (!Number.isNaN(clickedDay)) {
+      return String(Math.max(1, clickedDay - 1)).padStart(2, "0");
+    }
     return pickerVal || "";
   }
+
 
   function findScheduleTimeForCard(card) {
     // 1. Check lines inside the card itself first
@@ -1060,9 +1083,12 @@
     const firstDate = (queue[0]?.date || "").trim();
     const m = firstDate.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
     if (m) {
-      crawlStartDayNum = String(parseInt(m[1], 10));
       const mm = MONTH_MAP[m[2].toLowerCase()];
-      if (mm) crawlStartMonthVal = `${m[3]}-${mm}`;
+      if (mm) {
+        const restored = shiftYearMonthDay(parseInt(m[3], 10), parseInt(mm, 10), parseInt(m[1], 10), 1);
+        crawlStartMonthVal = restored.monthVal;
+        crawlStartDayNum = String(restored.day);
+      }
     }
   }
 
@@ -1071,12 +1097,21 @@
 
     const monthInput = document.getElementById("month-picker");
     if (monthInput && targetMonthVal && monthInput.value !== targetMonthVal) {
+      log(`Switching schedule month to ${targetMonthVal}...`);
       monthInput.value = targetMonthVal;
+      monthInput.dispatchEvent(new Event("input", { bubbles: true }));
       monthInput.dispatchEvent(new Event("change", { bubbles: true }));
       if (typeof window.handleMonthPick === "function") {
         try { window.handleMonthPick(targetMonthVal); } catch (_) {}
       }
-      await sleep(350);
+      await waitFor(
+        () => {
+          const items = Array.from(document.querySelectorAll("#weekly-date-strip .date-item"));
+          return items.length > 0 ? true : `DIAG:Waiting for date strip in ${targetMonthVal}`;
+        },
+        { timeout: 6000, interval: 200, label: `Date strip for ${targetMonthVal}`, progressEveryMs: 3000 }
+      ).catch(() => {});
+      await sleep(300);
     }
 
     if (!targetDayNum) return;
@@ -1092,6 +1127,8 @@
       try { matchItem.scrollIntoView({ behavior: "instant", block: "nearest", inline: "center" }); } catch (_) {}
       matchItem.click();
       await sleep(350);
+    } else {
+      log(`Day tile "${desiredNum}" not found in #weekly-date-strip for ${targetMonthVal || "current month"}.`);
     }
   }
 
@@ -1099,9 +1136,8 @@
     if (getActiveViewId() !== "#weekly-schedule-view") {
       await ensureStudyViewWithAllClasses();
 
-      // In #study-view HTML, "View Weekly Schedule" lives inside #live-classes-container (which may be display:none)
       if (typeof window.openWeeklySchedule === "function") {
-        log('Calling openWeeklySchedule()...');
+        log("Calling openWeeklySchedule()...");
         window.openWeeklySchedule();
         await sleep(450);
       }
