@@ -82,11 +82,26 @@
         "science": "SCNC",
         "english": "ENG",
         "history": "HSTRY",
-        "static gk": "STK－GK",
         "statik gk": "STK－GK",
         "current affairs": "CNT－AFS",
         "current affairs magazine": "CNT－AFRS  Magazine",
         "mathematics": "MTS"
+      },
+      //   Default  Teacher  Code  By  Subject  For  This  Batch   (  Used  Automatically  When  Teacher  isn't  On  The  Page  )
+      subjectTeachers: {
+        "reasoning": "JTN S",
+        "geography": "AKSY S",
+        "economics": "AKSY S",
+        "computer": "BHGSRE M",
+        "arithmetic maths": "RVNDR S",
+        "advanced maths": "SBHM S",
+        "polity": "BHGSRE M",
+        "science": "MSKN M",
+        "english": "BRGU S",
+        "statik gk": "ADTY S",
+        "current affairs": "RAJA S",
+        "current affairs magazine": "RAJA S",
+        "mathematics": "RVNDR S"
       },
       teachers: {
         "jitin sagar sir": "JTN S",
@@ -115,6 +130,15 @@
         "zoology": "ZOO",
         "biology": "BIO"
       },
+      //   Default  Teacher  Code  By  Subject  For  " Yakeen 2.0 2027 "   (  Update  Anytime  )
+      subjectTeachers: {
+        "physics": "SAL S",
+        "physical chemistry": "AMT S",
+        "organic chemistry": "SBH KRN S",
+        "inorganic chemistry": "KNWR S",
+        "botany": "RUP S",
+        "zoology": "SMPT M"
+      },
       teachers: {
         "saleem sir": "SAL S",
         "saleem ahmad sir": "SAL S",
@@ -138,7 +162,203 @@
     }
   };
 
-  // Global teacher lookup across all configured batches so inline "Subject By Teacher" works anywhere
+  const GLOBAL_TEACHER_CODES = (() => {
+    const map = {};
+    for (const cfg of Object.values(BATCH_CONFIG)) {
+      for (const [tName, tCode] of Object.entries(cfg.teachers || {})) {
+        if (tCode) map[norm(tName)] = tCode;
+      }
+    }
+    return map;
+  })();
+
+  const NORMALIZED_BATCH_CONFIG = Object.fromEntries(
+    Object.entries(BATCH_CONFIG).map(([rawBatch, cfg]) => {
+      const normSubjects = Object.fromEntries(
+        Object.entries(cfg.subjects || {}).map(([k, v]) => [norm(k), v])
+      );
+      const normSubjectTeachers = Object.fromEntries(
+        Object.entries(cfg.subjectTeachers || {}).map(([k, v]) => [norm(k), v])
+      );
+      const normTeachers = Object.fromEntries(
+        Object.entries(cfg.teachers || {}).map(([k, v]) => [norm(k), v])
+      );
+      return [
+        norm(rawBatch),
+        {
+          ...cfg,
+          normSubjects,
+          normSubjectTeachers,
+          normTeachers
+        }
+      ];
+    })
+  );
+
+  let currentBatchRawName = "";
+  let currentBatchShortName = "";
+  let currentChapterCode = "C01";
+  let lastMatchedChapterText = "";
+
+  function getActiveBatchCfg() {
+    if (!currentBatchRawName) return null;
+    return NORMALIZED_BATCH_CONFIG[norm(currentBatchRawName)] || null;
+  }
+
+  function getShortBatchName(rawBatchName) {
+    const cleanRaw = String(rawBatchName || "").replace(/\s+/g, " ").trim();
+    if (!cleanRaw) return "";
+
+    const cfg = NORMALIZED_BATCH_CONFIG[norm(cleanRaw)];
+    if (cfg && cfg.shortCode) {
+      return cfg.shortCode;
+    }
+
+    const skip = new Set(["with", "and", "for", "the", "of", "in", "by", "batch", "live", "recorded"]);
+    const parts = cleanRaw
+      .replace(/[|•–—:()\[\]{}.,!?/\\-]+/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w && !skip.has(w.toLowerCase()));
+
+    const compact = parts.map((w) => {
+      if (/^\d+$/.test(w)) return w.length === 4 ? w.slice(-2) : w;
+      if (w.length <= 4) return w.toUpperCase();
+      return (
+        w
+          .replace(/[aeiou]/gi, "")
+          .slice(0, 3)
+          .toUpperCase() || w.slice(0, 3).toUpperCase()
+      );
+    });
+
+    return compact.join(" ").trim();
+  }
+
+  function inferTeacherCodeFromName(teacherName = "") {
+    const cleaned = String(teacherName || "").trim();
+    if (!cleaned) return "";
+    const nKey = norm(cleaned);
+    const batchCfg = getActiveBatchCfg();
+    if (batchCfg && batchCfg.normTeachers && batchCfg.normTeachers[nKey]) {
+      return batchCfg.normTeachers[nKey];
+    }
+    if (GLOBAL_TEACHER_CODES[nKey]) {
+      return GLOBAL_TEACHER_CODES[nKey];
+    }
+    for (const [k, v] of Object.entries(GLOBAL_TEACHER_CODES)) {
+      if (k && (nKey.includes(k) || k.includes(nKey))) return v;
+    }
+    const parts = cleaned.split(/\s+/);
+    const lastWord = (parts[parts.length - 1] || "").toLowerCase();
+    const roleSuffix = /^(ma'am|mam|madam|miss|mrs|ms)$/i.test(lastWord) ? "M" : "S";
+    const tokens = parts
+      .filter((p) => !/^(sir|ma'am|mam|madam|miss|mrs|ms|dr\.?)$/i.test(p))
+      .map((p) => p.replace(/[^A-Za-z]/g, "").toUpperCase())
+      .filter(Boolean);
+    if (!tokens.length) return "";
+    const abbr = tokens.map((t) => (t.length <= 4 ? t : t.replace(/[AEIOU]/g, "").slice(0, 4) || t.slice(0, 4))).join(" ");
+    return `${abbr} ${roleSuffix}`;
+  }
+
+  function parseSubjectAndTeacher(rawSubject = "", contextText = "") {
+    const cleanSub = String(rawSubject || "").replace(/\s+/g, " ").trim();
+    let baseSubject = cleanSub;
+    let inlineTeacher = "";
+
+    const byMatch = cleanSub.match(/^(.+?)\s+\bby\b\s+(.+)$/i);
+    if (byMatch) {
+      baseSubject = byMatch[1].trim();
+      inlineTeacher = byMatch[2].trim();
+    }
+
+    const batchCfg = getActiveBatchCfg();
+    const subKey = norm(baseSubject);
+
+    let subjectCode =
+      (batchCfg && batchCfg.normSubjects && batchCfg.normSubjects[subKey]) ||
+      SUBJECT_SHORT_CODES[subKey] ||
+      "";
+
+    if (!subjectCode) {
+      for (const [k, code] of Object.entries(SUBJECT_SHORT_CODES)) {
+        if (subKey.includes(k) || k.includes(subKey)) {
+          subjectCode = code;
+          break;
+        }
+      }
+    }
+
+    if (!subjectCode) {
+      subjectCode =
+        baseSubject
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, " ")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((w) => w.slice(0, 4))
+          .join("－") || "SUB";
+    }
+
+    let teacherCode = "";
+    const teacherMap = (batchCfg && batchCfg.normTeachers) || {};
+    const searchPool = [inlineTeacher, contextText, cleanSub].filter(Boolean);
+
+    //   1.  Check  Explicit  Teacher  Name  in  Inline  " By ... "  ,,   Context  ,,   or  Subject
+    for (const candidate of searchPool) {
+      const cNorm = norm(candidate);
+      if (teacherMap[cNorm]) {
+        teacherCode = teacherMap[cNorm];
+        break;
+      }
+      if (GLOBAL_TEACHER_CODES[cNorm]) {
+        teacherCode = GLOBAL_TEACHER_CODES[cNorm];
+        break;
+      }
+      for (const [tKey, tCode] of Object.entries(teacherMap)) {
+        if (tKey && cNorm.includes(tKey)) {
+          teacherCode = tCode;
+          break;
+        }
+      }
+      if (teacherCode) break;
+      for (const [gKey, gCode] of Object.entries(GLOBAL_TEACHER_CODES)) {
+        if (gKey && cNorm.includes(gKey)) {
+          teacherCode = gCode;
+          break;
+        }
+      }
+      if (teacherCode) break;
+    }
+
+    //   2.  Fallback  To  Active  Batch's  " subjectTeachers "  Mapping   (  Batch + Subject  )
+    if (!teacherCode && batchCfg && batchCfg.normSubjectTeachers) {
+      if (batchCfg.normSubjectTeachers[subKey]) {
+        teacherCode = batchCfg.normSubjectTeachers[subKey];
+      } else {
+        for (const [sKey, tCode] of Object.entries(batchCfg.normSubjectTeachers)) {
+          if (sKey && (subKey.includes(sKey) || sKey.includes(subKey))) {
+            teacherCode = tCode;
+            break;
+          }
+        }
+      }
+    }
+
+    //   3.  Infer  Abbreviation  if  An  Inline  Teacher  Name  Was  Present
+    if (!teacherCode && inlineTeacher) {
+      teacherCode = inferTeacherCodeFromName(inlineTeacher);
+    }
+
+    return {
+      baseSubject,
+      subjectCode,
+      teacherCode: teacherCode || "TCH"
+    };
+  }
+
+  //   Global  Teacher  Lookup  Across  All  Configured  Batches  So  Inline  " Subject  By  Teacher "  Works  Anywhere
   const GLOBAL_TEACHER_CODES = (() => {
     const map = {};
     for (const cfg of Object.values(BATCH_CONFIG)) {
