@@ -1043,28 +1043,90 @@
   }
 
 
-  async function returnToWeeklySchedule() {
-    if (getActiveViewId() === "#weekly-schedule-view") {
-      updateMiniScreen("On Weekly Schedule", "#weekly-schedule-view", "Idle");
+  let crawlStartMonthVal = "";
+  let crawlStartDayNum = "";
+
+  function captureStartScheduleDate() {
+    const pickerVal = (document.getElementById("month-picker")?.value || "").trim();
+    const activeItem = document.querySelector("#weekly-date-strip .date-item.active");
+    const activeDay = (activeItem?.querySelector(".date-num")?.innerText || "").trim();
+
+    if (pickerVal || activeDay) {
+      crawlStartMonthVal = pickerVal;
+      crawlStartDayNum = activeDay ? String(parseInt(activeDay, 10)) : "";
       return;
     }
-    const onStudy = await ensureStudyViewWithAllClasses();
-    if (onStudy) {
-      const schedBtn = Array.from(document.querySelectorAll("#study-view button, #study-view a, #study-view div"))
-        .find((el) => isVisible(el) && norm(el.innerText).includes("view weekly schedule"));
-      if (schedBtn) {
-        schedBtn.click();
-        await sleep(350);
-      } else if (typeof window.openWeeklySchedule === "function") {
-        window.openWeeklySchedule();
-        await sleep(350);
-      } else if (typeof window.nav === "function") {
-        window.nav("weekly-schedule-view");
-        await sleep(350);
+
+    //   Fallback  From  First  Queued  Item's  Date  if  Available   (  E.g.  -  " 25 Nov 2026 "  )
+    const firstDate = (queue[0]?.date || "").trim();
+    const m = firstDate.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
+    if (m) {
+      crawlStartDayNum = String(parseInt(m[1], 10));
+      const mm = MONTH_MAP[m[2].toLowerCase()];
+      if (mm) crawlStartMonthVal = `${m[3]}-${mm}`;
+    }
+  }
+
+  async function selectScheduleDateOnView(targetMonthVal, targetDayNum) {
+    if (!targetMonthVal && !targetDayNum) return;
+
+    const monthInput = document.getElementById("month-picker");
+    if (monthInput && targetMonthVal && monthInput.value !== targetMonthVal) {
+      monthInput.value = targetMonthVal;
+      monthInput.dispatchEvent(new Event("change", { bubbles: true }));
+      if (typeof window.handleMonthPick === "function") {
+        try { window.handleMonthPick(targetMonthVal); } catch (_) {}
+      }
+      await sleep(350);
+    }
+
+    if (!targetDayNum) return;
+
+    const desiredNum = String(parseInt(targetDayNum, 10));
+    const dateItems = Array.from(document.querySelectorAll("#weekly-date-strip .date-item"));
+    const matchItem = dateItems.find((item) => {
+      const numTxt = (item.querySelector(".date-num")?.innerText || "").trim();
+      return String(parseInt(numTxt, 10)) === desiredNum;
+    });
+
+    if (matchItem && !matchItem.classList.contains("active")) {
+      try { matchItem.scrollIntoView({ behavior: "instant", block: "nearest", inline: "center" }); } catch (_) {}
+      matchItem.click();
+      await sleep(350);
+    }
+  }
+
+  async function returnToWeeklySchedule() {
+    if (getActiveViewId() !== "#weekly-schedule-view") {
+      const onStudy = await ensureStudyViewWithAllClasses();
+      if (onStudy) {
+        const schedBtn = Array.from(document.querySelectorAll("#study-view button, #study-view a, #study-view div"))
+          .find((el) => isVisible(el) && norm(el.innerText).includes("view weekly schedule"));
+        if (schedBtn) {
+          schedBtn.click();
+          await sleep(400);
+        } else if (typeof window.openWeeklySchedule === "function") {
+          window.openWeeklySchedule();
+          await sleep(400);
+        } else if (typeof window.nav === "function") {
+          window.nav("weekly-schedule-view");
+          await sleep(400);
+        }
       }
     }
-    updateMiniScreen("Returned to Weekly Schedule", getActiveViewId(), "Ready");
+
+    await waitFor(
+      () => (isViewOpen("#weekly-schedule-view") ? true : `DIAG:Waiting for #weekly-schedule-view`),
+      { timeout: 10000, interval: 200, label: "Weekly Schedule View", progressEveryMs: 3000 }
+    ).catch(() => {});
+
+    await selectScheduleDateOnView(crawlStartMonthVal, crawlStartDayNum);
+
+    const activeLabel = [crawlStartDayNum?.padStart(2, "0"), crawlStartMonthVal].filter(Boolean).join(" / ") || "Ready";
+    updateMiniScreen("On Weekly Schedule", "#weekly-schedule-view", `Date: ${activeLabel}`);
+    log(`Returned  To  Weekly Schedule  ${activeLabel ? ` (${activeLabel})`  :  ""}.`);
   }
+
 
   function scoreMatch(candidateText, queryText) {
     const cNorm = norm(candidateText);
@@ -1539,6 +1601,7 @@
     if (queue.length === 0) return alert("Tap lectures on Weekly Schedule first.");
 
     isCrawling = true;
+    captureStartScheduleDate();
     const startBtn = hud.querySelector("#pw-start-btn");
     startBtn.disabled = true;
     startBtn.style.opacity = "0.6";
