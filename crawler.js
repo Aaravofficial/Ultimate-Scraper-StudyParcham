@@ -32,10 +32,17 @@
   //   Add  as  Many  Batches  as  You  Want  Here  :
   //   Key  =  Normalized  Batch  Name   (  Lowercase  ,,   Punctuation  Stripped  ,,   Spaces  Collapsed  )
   //   Value  =  Short  Batch  Name  Appended  After  " itz arv "
+  //   Paste  The  Exact  Batch Name  From  The  Site  as  The  Key  ,,   &  Your  Short Name  as  The  Value  .
+  //   No  Manual   Punctuation / Case  Cleanup  Needed  —  Normalization  Happens  Automatically  .
   const BATCH_SHORT_NAMES = {
     "SAFAR 4.0 SSC CGL | CHSL 2027 with English Books": "SFR 40 SC CSL 27",
     "Yakeen 2.0 2027": "YKN NT 20 27"
+    
   };
+
+  const NORMALIZED_BATCH_SHORT_NAMES = Object.fromEntries(
+    Object.entries(BATCH_SHORT_NAMES).map(([rawKey, shortVal]) => [norm(rawKey), shortVal])
+  );
 
   let currentBatchRawName = "";
   let currentBatchShortName = "";
@@ -45,11 +52,10 @@
     if (!cleanRaw) return "";
 
     const key = norm(cleanRaw);
-    if (BATCH_SHORT_NAMES[key]) {
-      return BATCH_SHORT_NAMES[key];
+    if (NORMALIZED_BATCH_SHORT_NAMES[key]) {
+      return NORMALIZED_BATCH_SHORT_NAMES[key];
     }
 
-    // Fallback generator if a batch is not yet in BATCH_SHORT_NAMES
     const skip = new Set(["with", "and", "for", "the", "of", "in", "by", "batch", "live", "recorded"]);
     const parts = cleanRaw
       .replace(/[|•–—:()\[\]{}.,!?/\\-]+/g, " ")
@@ -60,13 +66,21 @@
     const compact = parts.map((w) => {
       if (/^\d+$/.test(w)) return w.length === 4 ? w.slice(-2) : w;
       if (w.length <= 4) return w.toUpperCase();
-      return w
-        .replace(/[aeiou]/gi, "")
-        .slice(0, 3)
-        .toUpperCase() || w.slice(0, 3).toUpperCase();
+      return (
+        w
+          .replace(/[aeiou]/gi, "")
+          .slice(0, 3)
+          .toUpperCase() || w.slice(0, 3).toUpperCase()
+      );
     });
 
     return compact.join(" ").trim();
+  }
+
+  function isInsideModalOrDropdown(el) {
+    return !!el.closest(
+      "[role='dialog'], [role='listbox'], [role='menu'], .modal, .dropdown-menu, .batch-modal, .selector-modal"
+    );
   }
 
   function detectBatchNameFromStudyView() {
@@ -76,26 +90,38 @@
     const allCls = findAllClassesEl();
     const allClsRect = allCls ? allCls.getBoundingClientRect() : null;
 
-    const candidates = Array.from(studyEl.querySelectorAll("h1, h2, h3, h4, h5, div, span, p"))
+    //   Locate  The   "  SELECT  BATCH  "   Label  First  So  We  Pick  The  Active  Batch  Title  Right  Under  it
+    const selectBatchEl = Array.from(studyEl.querySelectorAll("div, span, p, small, label")).find((el) => {
+      if (!isVisible(el) || isInsideModalOrDropdown(el)) return false;
+      const t = (el.innerText || "").replace(/\s+/g, " ").trim().toLowerCase();
+      return t === "select batch";
+    });
+
+    const selectRect = selectBatchEl ? selectBatchEl.getBoundingClientRect() : null;
+
+    const candidates = Array.from(studyEl.querySelectorAll("h1, h2, h3, h4, h5, div, span, p, button"))
       .filter((el) => {
-        if (!isVisible(el) || el.children.length > 2) return false;
+        if (!isVisible(el) || el.children.length > 1 || isInsideModalOrDropdown(el)) return false;
         const txt = (el.innerText || "").replace(/\s+/g, " ").trim();
-        if (!txt || txt.length < 3 || txt.length > 140) return false;
+        if (!txt || txt.length < 2 || txt.length > 140) return false;
         const low = txt.toLowerCase();
         if (
           low === "select batch" ||
           low === "batch offerings" ||
           low === "all classes" ||
           low === "view weekly schedule" ||
-          low.includes("expires in")
+          low.includes("expires in") ||
+          low.includes("upcoming events")
         ) {
           return false;
         }
-        if (allClsRect) {
-          const r = el.getBoundingClientRect();
-          // In SS-2, the batch title sits above "Batch Offerings" / "All Classes"
-          if (r.top >= allClsRect.top) return false;
+        const r = el.getBoundingClientRect();
+        if (selectRect) {
+          //   Active  Batch  Title  Sits  Directly  Below   "  SELECT  BATCH  "   &  Above   "  All  Classes  "
+          if (r.top < selectRect.bottom - 4) return false;
+          if (r.top > selectRect.bottom + 90) return false;
         }
+        if (allClsRect && r.top >= allClsRect.top) return false;
         return true;
       })
       .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
@@ -110,8 +136,19 @@
   }
 
   function buildTgCommandText(streamUrl) {
-    const batchPart = currentBatchShortName ? ` ${currentBatchShortName}` : "";
-    return `/s ${streamUrl} -n itz arv${batchPart}`;
+    const batchPart = currentBatchShortName ? `  ${currentBatchShortName}    ` : "    ";
+    return `/s  -n itz arv${batchPart}${streamUrl}`;
+  }
+
+  function escapeMarkdownCode(str = "") {
+    return String(str).replace(/`/g, "'");
+  }
+
+  function formatTgMessage(title, subject, streamUrl) {
+    const cmd = escapeMarkdownCode(buildTgCommandText(streamUrl));
+    const safeTitle = escapeMarkdownCode(title || "Lecture");
+    const safeSubject = escapeMarkdownCode(subject || "General");
+    return `${safeTitle}\nSubject: ${safeSubject}\n\n\`${cmd}\``;
   }
 
   
@@ -444,7 +481,8 @@
       detectBatchNameFromStudyView();
     }
     const cmd = buildTgCommandText(lastCapturedUrl);
-    const ok = await sendTelegram(`\`${cmd}\``, { parseMode: "Markdown" });
+    const tgMsg = formatTgMessage(lastCapturedTitle, lastCapturedSubject, lastCapturedUrl);
+    const ok = await sendTelegram(tgMsg, { parseMode: "Markdown" });
     if (ok) log(`Sent  Command  To  TG   :   ${cmd}`);
   };
 
@@ -1031,7 +1069,8 @@
       setVaultStatus("CAPTURED", item.title, cleaned, "Link ready", "/downloader", hasSig ? "Signed query intact" : "Base URL fallback");
       if (!sentUrls.has(cleaned)) {
         const tgCmd = buildTgCommandText(cleaned);
-        const ok = await sendTelegram(`\`${tgCmd}\``, { parseMode: "Markdown" });
+        const tgMsg = formatTgMessage(item.title, item.subject, cleaned);
+        const ok = await sendTelegram(tgMsg, { parseMode: "Markdown" });
         if (ok) {
           sentUrls.add(cleaned);
           log(`Step - 5  :  Sent  Command  To  Telegram${hasSig ? "  (  with  Signature  )  "  :   ""}: ${tgCmd}`);
