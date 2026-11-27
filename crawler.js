@@ -1057,7 +1057,6 @@
       return;
     }
 
-    //   Fallback  From  First  Queued  Item's  Date  if  Available   (  E.g.  -  " 25 Nov 2026 "  )
     const firstDate = (queue[0]?.date || "").trim();
     const m = firstDate.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
     if (m) {
@@ -1089,7 +1088,7 @@
       return String(parseInt(numTxt, 10)) === desiredNum;
     });
 
-    if (matchItem && !matchItem.classList.contains("active")) {
+    if (matchItem) {
       try { matchItem.scrollIntoView({ behavior: "instant", block: "nearest", inline: "center" }); } catch (_) {}
       matchItem.click();
       await sleep(350);
@@ -1098,25 +1097,32 @@
 
   async function returnToWeeklySchedule() {
     if (getActiveViewId() !== "#weekly-schedule-view") {
-      const onStudy = await ensureStudyViewWithAllClasses();
-      if (onStudy) {
+      await ensureStudyViewWithAllClasses();
+
+      // In #study-view HTML, "View Weekly Schedule" lives inside #live-classes-container (which may be display:none)
+      if (typeof window.openWeeklySchedule === "function") {
+        log('Calling openWeeklySchedule()...');
+        window.openWeeklySchedule();
+        await sleep(450);
+      }
+
+      if (!isViewOpen("#weekly-schedule-view")) {
         const schedBtn = Array.from(document.querySelectorAll("#study-view button, #study-view a, #study-view div"))
-          .find((el) => isVisible(el) && norm(el.innerText).includes("view weekly schedule"));
+          .find((el) => norm(el.innerText).includes("view weekly schedule"));
         if (schedBtn) {
-          schedBtn.click();
-          await sleep(400);
-        } else if (typeof window.openWeeklySchedule === "function") {
-          window.openWeeklySchedule();
-          await sleep(400);
-        } else if (typeof window.nav === "function") {
-          window.nav("weekly-schedule-view");
-          await sleep(400);
+          try { schedBtn.click(); } catch (_) {}
+          await sleep(450);
         }
+      }
+
+      if (!isViewOpen("#weekly-schedule-view") && typeof window.nav === "function") {
+        window.nav("weekly-schedule-view");
+        await sleep(450);
       }
     }
 
     await waitFor(
-      () => (isViewOpen("#weekly-schedule-view") ? true : `DIAG:Waiting for #weekly-schedule-view`),
+      () => (isViewOpen("#weekly-schedule-view") ? true : `DIAG:Waiting for #weekly-schedule-view (now ${getActiveViewId()})`),
       { timeout: 10000, interval: 200, label: "Weekly Schedule View", progressEveryMs: 3000 }
     ).catch(() => {});
 
@@ -1124,7 +1130,7 @@
 
     const activeLabel = [crawlStartDayNum?.padStart(2, "0"), crawlStartMonthVal].filter(Boolean).join(" / ") || "Ready";
     updateMiniScreen("On Weekly Schedule", "#weekly-schedule-view", `Date: ${activeLabel}`);
-    log(`Returned  To  Weekly Schedule  ${activeLabel ? ` (${activeLabel})`  :  ""}.`);
+    log(`Returned  To  Weekly Schedule${activeLabel ? ` (${activeLabel})` : ""}.`);
   }
 
 
