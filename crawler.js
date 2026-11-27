@@ -85,12 +85,11 @@
 
   function detectBatchNameFromStudyView() {
     const studyEl = document.getElementById("study-view");
-    if (!studyEl) return "";
+    if (!studyEl) return currentBatchShortName;
 
     const allCls = findAllClassesEl();
     const allClsRect = allCls ? allCls.getBoundingClientRect() : null;
 
-    //   Locate  The   "  SELECT  BATCH  "   Label  First  So  We  Pick  The  Active  Batch  Title  Right  Under  it
     const selectBatchEl = Array.from(studyEl.querySelectorAll("div, span, p, small, label")).find((el) => {
       if (!isVisible(el) || isInsideModalOrDropdown(el)) return false;
       const t = (el.innerText || "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -99,11 +98,12 @@
 
     const selectRect = selectBatchEl ? selectBatchEl.getBoundingClientRect() : null;
 
+    // Allow up to 5 child nodes (e.g., icon/span wrappers) and pick the smallest matching element directly under "SELECT BATCH"
     const candidates = Array.from(studyEl.querySelectorAll("h1, h2, h3, h4, h5, div, span, p, button"))
       .filter((el) => {
-        if (!isVisible(el) || el.children.length > 1 || isInsideModalOrDropdown(el)) return false;
+        if (!isVisible(el) || el.children.length > 5 || isInsideModalOrDropdown(el)) return false;
         const txt = (el.innerText || "").replace(/\s+/g, " ").trim();
-        if (!txt || txt.length < 2 || txt.length > 140) return false;
+        if (!txt || txt.length < 2 || txt.length > 160) return false;
         const low = txt.toLowerCase();
         if (
           low === "select batch" ||
@@ -116,21 +116,27 @@
           return false;
         }
         const r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) return false;
         if (selectRect) {
-          //   Active  Batch  Title  Sits  Directly  Below   "  SELECT  BATCH  "   &  Above   "  All  Classes  "
           if (r.top < selectRect.bottom - 4) return false;
-          if (r.top > selectRect.bottom + 90) return false;
+          if (r.top > selectRect.bottom + 110) return false;
         }
         if (allClsRect && r.top >= allClsRect.top) return false;
         return true;
       })
-      .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+      .sort((a, b) => {
+        const aArea = a.getBoundingClientRect().width * a.getBoundingClientRect().height;
+        const bArea = b.getBoundingClientRect().width * b.getBoundingClientRect().height;
+        return aArea - bArea;
+      });
 
     const picked = candidates[0] ? (candidates[0].innerText || "").replace(/\s+/g, " ").trim() : "";
     if (picked) {
       currentBatchRawName = picked;
       currentBatchShortName = getShortBatchName(picked);
       log(`[BATCH-DETECTED] Raw="${currentBatchRawName}" -> Short="${currentBatchShortName}"`);
+    } else {
+      log(`[BATCH-MISS] Could not find batch title on #study-view.`);
     }
     return currentBatchShortName;
   }
@@ -1068,6 +1074,7 @@
       const hasSig = cleaned.includes("Signature=");
       setVaultStatus("CAPTURED", item.title, cleaned, "Link ready", "/downloader", hasSig ? "Signed query intact" : "Base URL fallback");
       if (!sentUrls.has(cleaned)) {
+      if (isOnStudyViewReady()) detectBatchNameFromStudyView();
         const tgCmd = buildTgCommandText(cleaned);
         const tgMsg = formatTgMessage(item.title, item.subject, cleaned);
         const ok = await sendTelegram(tgMsg, { parseMode: "Markdown" });
