@@ -137,9 +137,9 @@
       `<b><i>Time Uploaded     :     ${escapeHtml(time || "N/A")}</i></b>` +
       `</blockquote>`;
 
-    const cmdHtml = `<code>${escapeHtml(cmd)}</code>`;
+    const cmdHtml = `<blockquote><code>${escapeHtml(cmd)}</code></blockquote>`;
 
-    return `${subHtml}\n\n\n\n${detailsBlockquote}\n\n\n${cmdHtml}`;
+    return `${subHtml}\n\n\n\n${detailsBlockquote}\n\n\n\n${cmdHtml}`;
   }
 
   
