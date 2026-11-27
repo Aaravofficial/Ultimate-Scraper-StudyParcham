@@ -117,19 +117,27 @@
     return `/s ${streamUrl} -n itz arv ${shortPart}`;
   }
 
-  function escapeMarkdownCode(str = "") {
-    return String(str).replace(/`/g, "'");
+  function escapeHtml(str = "") {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
-  function formatTgMessage(title, subject, streamUrl) {
-    const cmd = escapeMarkdownCode(buildTgCommandText(streamUrl));
-    const safeTitle = escapeMarkdownCode(title || "Lecture");
-    const safeSubject = escapeMarkdownCode(subject || "General");
-    return `${safeTitle}\nSubject: ${safeSubject}\n\n\`${cmd}\``;
+  function formatTgMessage(title, subject, streamUrl, date = "", time = "") {
+    const cmd = buildTgCommandText(streamUrl);
+    const subHtml = `<b>${escapeHtml(subject || "General")}</b>`;
+    const titleHtml = `<b><i>${escapeHtml(title || "Lecture")}</i></b>`;
+    const dateHtml = `<b><i>${escapeHtml(date || "N/A")}</i></b>`;
+    const timeHtml = `<b><i>${escapeHtml(time || "N/A")}</i></b>`;
+    const cmdHtml = `<blockquote><code>${escapeHtml(cmd)}</code></blockquote>`;
+
+    return `${subHtml}\n\n\n${titleHtml}\n\n${dateHtml}\n\n${timeHtml}\n\n\n\n${cmdHtml}`;
   }
 
   
-  // Bottom-Left HUD
+  //   Bottom - Left  HUD
   const hud = document.createElement("div");
   hud.id = "pw-hud-panel";
   hud.style.cssText =
@@ -194,6 +202,8 @@
   let lastCapturedUrl = "";
   let lastCapturedTitle = "";
   let lastCapturedSubject = "";
+  let lastCapturedDate = "";
+  let lastCapturedTime = "";
   let latestDownloaderUrl = "";
   const sentUrls = new Set();
 
@@ -458,8 +468,14 @@
       detectBatchNameFromStudyView();
     }
     const cmd = buildTgCommandText(lastCapturedUrl);
-    const tgMsg = formatTgMessage(lastCapturedTitle, lastCapturedSubject, lastCapturedUrl);
-    const ok = await sendTelegram(tgMsg, { parseMode: "Markdown" });
+    const tgMsg = formatTgMessage(
+      lastCapturedTitle,
+      lastCapturedSubject,
+      lastCapturedUrl,
+      lastCapturedDate,
+      lastCapturedTime
+    );
+    const ok = await sendTelegram(tgMsg, { parseMode: "HTML" });
     if (ok) log(`Sent  Command  To  TG   :   ${cmd}`);
   };
 
@@ -484,6 +500,55 @@
     return fallback;
   }
 
+
+  function getSelectedScheduleDate() {
+    const pickerVal = (document.getElementById("month-picker")?.value || "").trim(); // e.g. "2026-11"
+    const activeDateItem = document.querySelector("#weekly-date-strip .date-item.active");
+    const dayNumRaw = (activeDateItem?.querySelector(".date-num")?.innerText || "").trim();
+    const dayNum = dayNumRaw ? dayNumRaw.padStart(2, "0") : "";
+
+    if (pickerVal && /^\d{4}-\d{2}$/.test(pickerVal) && dayNum) {
+      const [yearStr, monthStr] = pickerVal.split("-");
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const mIdx = parseInt(monthStr, 10) - 1;
+      const mLabel = monthNames[mIdx] || monthStr;
+      return `${dayNum} ${mLabel} ${yearStr}`;
+    }
+
+    if (dayNum && pickerVal) return `${dayNum} (${pickerVal})`;
+    if (dayNum) return dayNum;
+    return pickerVal || "";
+  }
+
+  function findScheduleTimeForCard(card) {
+    // 1. Check lines inside the card itself first
+    const lines = (card.innerText || "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const insideTime = lines.find((l) => /^\d{1,2}:\d{2}(?:\s*(?:AM|PM))?$/i.test(l));
+    if (insideTime) return insideTime;
+
+    // 2. Otherwise walk backwards through previous siblings/elements in #weekly-schedule-view for the time header (e.g. "08:30")
+    let prev = card.previousElementSibling;
+    let steps = 0;
+    while (prev && steps < 12) {
+      const t = (prev.innerText || "").trim();
+      if (/^\d{1,2}:\d{2}(?:\s*(?:AM|PM))?$/i.test(t)) {
+        return t;
+      }
+      const timeChild = Array.from(prev.querySelectorAll("div, span, h1, h2, h3, h4, h5, h6, p, strong, b")).find(
+        (el) => el.children.length === 0 && /^\d{1,2}:\d{2}(?:\s*(?:AM|PM))?$/i.test((el.innerText || "").trim())
+      );
+      if (timeChild) {
+        return (timeChild.innerText || "").trim();
+      }
+      prev = prev.previousElementSibling;
+      steps++;
+    }
+    return "";
+  }
+
   function parseScheduleCard(card) {
     const lines = (card.innerText || "")
       .split("\n")
@@ -496,12 +561,15 @@
     const titleLines = lines.filter(
       (l) =>
         l !== metaLine &&
-        !/^\d{1,2}:\d{2}$/.test(l) &&
+        !/^\d{1,2}:\d{2}(?:\s*(?:AM|PM))?$/i.test(l) &&
         !/^\d+\s*h(?:\s*\d+\s*m)?$/i.test(l) &&
         !/^(watch|resume|notes\s*&\s*more|view\s*note)$/i.test(l)
     );
 
-    return { subject, title: titleLines[0] || "", metaLine };
+    const time = findScheduleTimeForCard(card);
+    const date = getSelectedScheduleDate();
+
+    return { subject, title: titleLines[0] || "", metaLine, date, time };
   }
 
   document.addEventListener(
@@ -514,7 +582,7 @@
       const card = findScheduleCard(e.target);
       if (!card) return;
 
-      const { subject, title } = parseScheduleCard(card);
+      const { subject, title, date, time } = parseScheduleCard(card);
       if (!subject || !title) {
         log(`Ignored tap: missing ${!subject ? "subject" : "title"}.`);
         return;
@@ -530,14 +598,14 @@
       e.stopPropagation();
 
       card.style.outline = "2px solid #00ff88";
-      queue.push({ key, subject, title, cardEl: card });
+      queue.push({ key, subject, title, date, time, cardEl: card });
       updateQueueBadge();
-      log(`Queued [${subject}]: ${title}`);
+      log(`Queued [${subject}]: ${title}${date ? ` | ${date}` : ""}${time ? ` @ ${time}` : ""}`);
     },
     true
   );
 
-
+  
   async function ensureStudyViewWithAllClasses() {
     if (isOnStudyViewReady()) {
       const bShort = detectBatchNameFromStudyView();
@@ -951,6 +1019,9 @@
   async function processLecture(item, index, total) {
     lastCapturedTitle = item.title;
     lastCapturedSubject = item.subject;
+    lastCapturedDate = item.date || "";
+    lastCapturedTime = item.time || "";
+
     latestDownloaderUrl = "";
     setVaultStatus("RUNNING", item.title, "Extracting stream...", `[${index + 1}/${total}] Checking Study View`, undefined, item.subject);
 
@@ -1045,14 +1116,15 @@
       const hasSig = cleaned.includes("Signature=");
       setVaultStatus("CAPTURED", item.title, cleaned, "Link ready", "/downloader", hasSig ? "Signed query intact" : "Base URL fallback");
       if (!sentUrls.has(cleaned)) {
-      if (isOnStudyViewReady()) detectBatchNameFromStudyView();
+        if (isOnStudyViewReady()) detectBatchNameFromStudyView();
         const tgCmd = buildTgCommandText(cleaned);
-        const tgMsg = formatTgMessage(item.title, item.subject, cleaned);
-        const ok = await sendTelegram(tgMsg, { parseMode: "Markdown" });
+        const tgMsg = formatTgMessage(item.title, item.subject, cleaned, item.date, item.time);
+        const ok = await sendTelegram(tgMsg, { parseMode: "HTML" });
         if (ok) {
           sentUrls.add(cleaned);
           log(`Step - 5  :  Sent  Command  To  Telegram${hasSig ? "  (  with  Signature  )  "  :   ""}: ${tgCmd}`);
         }
+      }
       } else {
         log("Step - 5  :  Duplicate  Link  Skipped  .");
       }
